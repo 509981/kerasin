@@ -9,7 +9,7 @@ setup(
    description='A useful module',
    author='Dmitry Utenkov',
    author_email='509981@gmail.com',
-   #packages=['kerasin'],  #same as name
-   py_modules=['kerason']
+   packages=['kerason'],  #same as name
+   #py_modules=['kerasin']
    #install_requires=['bar', 'greek'], #external packages as dependencies
 )
