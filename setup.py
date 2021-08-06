@@ -1,5 +1,7 @@
-#from setuptools import setup
-from distutils.core import setup
+from setuptools import setup
+#from distutils.core import setup
+
+DISTUTILS_DEBUG
 
 setup(
    name='kerasin',
