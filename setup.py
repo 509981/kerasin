@@ -10,6 +10,6 @@ setup(
    author='Dmitry Utenkov',
    author_email='509981@gmail.com',
    #packages=['kerasin'],  #same as name
-   py_modules=['kerasin']
+   py_modules=['kerason']
    #install_requires=['bar', 'greek'], #external packages as dependencies
 )
