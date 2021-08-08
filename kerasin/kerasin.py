@@ -197,15 +197,7 @@ class neuro_graph:
     self.edjes = new_edjes
     return False
 
-
-G = neuro_graph()
-G.generate(20,1)
-V=nx.DiGraph()
-V.add_edges_from(G.edjes)
-nx.draw(V, pos=nx.spring_layout(V),with_labels =True)
-for cycle in nx.simple_cycles(V):
-  prn(cycle,' - найден цикл!') 
-#G.renumerate()
+#//////////////////////////////////////////////////////////////////////////////
 
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
