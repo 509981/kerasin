@@ -1135,8 +1135,8 @@ class gen_net(object):
     self.sequence()
     return lst_to_report
     
-  def get_model(self,idx=0):
-    return self.popul[idx]
+  def get_model(self, idx=0):
+    return self.popul[idx].model
   
   # Создание слоев layers по полному генотипу genom
   def load_genom(self, full_genom):
@@ -1163,16 +1163,6 @@ class gen_net(object):
             prn('Warning: добавлен неактивный слой',layer_idx,gen.layer_idx)
           layer_idx += 1
           
-
-        '''
-        layer = gen_layer()
-        self.layers.append(layer)
-        if len(self.layers) != gen.layer_idx+1:
-          prn('Ошибка: Нарушение нумерации генома ',gen.layer_idx)
-          prn(self.print_genom(full_genom))
-          return False
-        layer_idx = gen.layer_idx
-        '''
       if gen.var_name == "inbound_layers":
           edjes = gen.value
           for conn_in in edjes:
