@@ -1915,7 +1915,7 @@ class kerasin:
         bot.mutate(random.random()*.5)
         new_popul.append(bot)
         print('Бот',bot.name,'мутировал из бота',nBot)
-      else
+      else:
         print('От бота',self.popul[nBot].name,'мутация не удалась')
     # Удаляем с аутсайдеров
     #for idx in range(nPopul-nSurv): self.popul.pop()
