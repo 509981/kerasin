@@ -1,14 +1,17 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.0 от 8 августа 2021 г.`
+#Версия 1.1 от 12 августа 2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
 
-import networkx as nx
+
+#import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import time
+import os
 from copy import deepcopy
 
 from tensorflow.keras.layers import Dense,Dropout,Input,concatenate,BatchNormalization,Conv2D,MaxPooling2D
@@ -18,7 +21,6 @@ from tensorflow.keras.models import Model,clone_model
 from tensorflow.keras import utils
 import keras.backend as K
 
-import matplotlib.pyplot as plt
 
 trace = False
 
@@ -26,9 +28,9 @@ def prn(*arg):
   if trace: print(arg)
 
 
-#///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 # Генерация нециклического орграфа c одним выходом и 1-4 входами
-#///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class neuro_graph:
   def __init__(self):
@@ -197,13 +199,13 @@ class neuro_graph:
     self.edjes = new_edjes
     return False
 
-#//////////////////////////////////////////////////////////////////////////////
 
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
 types_list = ['Dense', 'Dense', 'Conv2D', 'Conv2D','Conv1D','Conv1D',\
                  'MaxPooling1D','MaxPooling2D','LSTM','GaussianNoise']
 
+#types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
 #ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization']                 
 
 
@@ -216,7 +218,7 @@ type_activations = ['linear','relu', 'elu','tanh','softmax','sigmoid', 'selu']
 #///////////////////////////////////////////////////////////////////////////////
 
 class gen(object):
-  def __init__(self,layer_idx, sublayer_idx, block_name, var_name, value):
+  def __init__(self,layer_idx=0, sublayer_idx=0, block_name='', var_name='', value=0):
     self.layer_idx = layer_idx  # Номер слоя
     self.sublayer_idx = sublayer_idx  # Номер вложеннного слоя
     self.name = block_name  # Имя типа слоя из types_list
@@ -228,6 +230,50 @@ class gen(object):
   def get(self):
     return ""+str(self.layer_idx)+"."+ str(self.sublayer_idx)+" "+self.name+ ": "+\
     self.var_name +"="+ str(self.value)
+
+  # Получить строку представления гена
+  def load_csv(self,str):
+    lst = str.split(';')
+    self.layer_idx = int(lst[0])
+    self.sublayer_idx = int(lst[1])
+    self.name = lst[2]
+    self.var_name = lst[3]
+    self.value = lst[4]
+    try:
+      if self.value == '':
+        pass
+      elif '[' == self.value[0]: # значение в виде списка
+        self.value = [int(x) for x in self.value.strip('[]').split(',')]
+      elif '(' == self.value[0]: # значение в виде кортежа
+        self.value = tuple([None if x == 'None' else int(x) for x in self.value.strip('()').split(',') if x != ''])
+      elif 'L1L2' in self.value:
+        self.value = 'l1_l2'
+      elif 'L1' in self.value:
+        self.value = 'l1'
+      elif 'L2' in self.value:
+        self.value = 'l2'
+      elif self.value=='None':
+        self.value = None
+      elif self.value=='True':
+        self.value = True
+      elif self.value=='False':
+        self.value = False
+      elif self.value.isdigit():
+        self.value = int(self.value)
+      elif self.value.replace('.','').isdigit():
+        self.value = float(self.value)
+      elif 'Wrapper' in self.value:
+        return False
+    except:
+      print('Не смог загрузить параметр ',str,lst,self.value)
+      return False
+    self.changed = False
+    return True
+
+  # Получить строку представления гена
+  def save_csv(self):
+    return ""+str(self.layer_idx)+";"+ str(self.sublayer_idx)+";"+self.name+ ";"+\
+    self.var_name +";"+ str(self.value)+'\n'
 
 
   # Изменяем параметр генома случайным способом
@@ -335,7 +381,7 @@ class gen(object):
 
 
 #///////////////////////////////////////////////////////////////////////////////
-# Класс генотипированного слоя
+# Класс слоя
 #///////////////////////////////////////////////////////////////////////////////
 
 class gen_layer(object):
@@ -606,13 +652,13 @@ class gen_layer(object):
   # Добавляем вспомогательные слои
   def __create_extralayers__(self,x):
     layer_in_name = x._keras_history.layer.__class__.__name__
-    if layer_in_name == 'Dense':
-      if random.random()>.6:
+    if True: #layer_in_name == 'Dense':
+      if random.random()>.7:
         #prn('сборка слоя - Dropout')
         arg = self.__get_layer_params__('Dropout')
         cfg = self.__mutate__('Dropout',arg)
         x = self.__create_layer__('Dropout',[x],cfg)
-      if random.random()>.6:
+      if random.random()>.7:
         #prn('сборка слоя - BatchNormalization')
         arg = self.__get_layer_params__('BatchNormalization')
         cfg = self.__mutate__('BatchNormalization',arg)
@@ -654,7 +700,7 @@ class gen_layer(object):
         cfg = self.__mutate__(layer_type,arg)
         # Создаем слой
         self.connector = self.__create_layer__(layer_type, connectors_in, cfg)
-        #prn('создание',layer_type,cfg)
+        prn('создание',layer_type,cfg)
 
       self.connector = self.__create_extralayers__(self.connector)
       #layers.deserialize(({'class_name': layer_type, 'config': arg})
@@ -676,7 +722,7 @@ class gen_layer(object):
 
           cfg = self.__genom_to_cfg__(gens)
           #layer_type = cfg['name']
-          #prn('замена',gens[0].name,cfg)
+          prn('замена',gens[0].name,cfg)
           x = self.__create_layer__(gens[0].name, [x], cfg)
         self.connector = x
 
@@ -743,6 +789,7 @@ class gen_net(object):
     # при кросовере берет фамилию жены, ой, сети с самой лучшей оценкой.
     # служит для оценки родственности сетей
     self.__family__ = family
+    self.train_duration = 0 # Длительность обучения сек.
 
   def __len__(self):
     return len(self.layers)
@@ -773,9 +820,81 @@ class gen_net(object):
     clone.layers = deepcopy(self.layers, memo)  
     return clone
   '''
+  
+
+  def save(self,path):
+    if not os.path.exists(path):
+      os.mkdir(path)
+    file = open(path+self.name+'.gn', 'w')
+    gt = self.sequence()
+    for g in gt:
+      file.write(g.save_csv())
+
+    file.write( gen(9999,0,'','output_shape',self.__final_layer__.shape_out).save_csv())
+    file.write( gen(9999,0,'','description',self.description).save_csv())
+    file.write( gen(9999,0,'','family',self.__family__).save_csv())
+    file.write( gen(9999,0,'','score',self.score).save_csv())
+    file.write( gen(9999,0,'','train_duration',self.train_duration).save_csv())
+
+    hist = self.hist
+    if hist != None:
+      for i in range(len(hist['loss'])):
+        #print(hist['loss'],i)
+        file.write( gen(9999,i,'','loss',hist['loss'][i]).save_csv())
+        if 'val_loss' in hist:
+          file.write( gen(9999,i,'','val_loss',hist['val_loss'][i]).save_csv())
+        if 'accuracy' in hist:
+          file.write( gen(9999,i,'','accuracy',hist['accuracy'][i]).save_csv())
+        if 'val_accuracy' in hist:
+          file.write( gen(9999,i,'','val_accuracy',hist['val_accuracy'][i]).save_csv())
+
+    file.close()
+
+
+  def load(self,name,path):
+    full_genom=[]
+    try:
+      file = open(path+name+'.gn', 'r')
+      #new = gen_net(self.name,self.get_family())
+      lines = file.readlines()
+      if len(lines) == 0: return False
+
+      from collections import defaultdict
+      hist = defaultdict(lambda: list())
+      for line in lines:
+        g = gen()
+        if not g.load_csv(line.strip()): continue
+        if g.layer_idx == 9999:
+          if g.var_name == 'output_shape':
+            self.__final_layer__.shape_out = tuple(g.value)
+          elif g.var_name == 'description':
+            self.description = str(g.value)
+          elif g.var_name == 'family':
+            self.__family__ = int(g.value)
+          elif g.var_name == 'score':
+            self.score = float(g.value)
+          elif g.var_name == 'train_duration':
+            self.train_duration = int(g.value)
+          elif g.var_name in 'val_loss val_accuracy':
+            hist[g.var_name].append(float(g.value))
+        else:
+          full_genom.append(g)
+      file.close()
+      #print(self.print_genom(full_genom))
+      
+      #G = gen_net(name,15)
+      self.name = name
+      self.hist = hist
+      self.load_genom(full_genom)
+      self.synthesis()
+    except:
+      print('не смог загрузить',path+name+'.gn')
+      return False
+    return True
+
   # Копирование экземпляра класса
   def copy(self):
-    #prn('deep copying ...')    
+    #prn('deep copying ...')     
     self.sequence()
     gn = self.get_genom(False,False)
     clone = gen_net(self.name+' clone',self.get_family())
@@ -1135,8 +1254,6 @@ class gen_net(object):
     self.sequence()
     return lst_to_report
     
-  def get_model(self, idx=0):
-    return self.popul[idx].model
   
   # Создание слоев layers по полному генотипу genom
   def load_genom(self, full_genom):
@@ -1156,6 +1273,7 @@ class gen_net(object):
     layer_idx = -1
     for gen in full_genom:
       if gen.layer_idx != layer_idx:
+        '''
         while gen.layer_idx != layer_idx:
           layer = gen_layer()
           self.layers.append(layer)
@@ -1163,6 +1281,16 @@ class gen_net(object):
             prn('Warning: добавлен неактивный слой',layer_idx,gen.layer_idx)
           layer_idx += 1
           
+
+        '''
+        layer = gen_layer()
+        self.layers.append(layer)
+        if len(self.layers) != gen.layer_idx+1:
+          prn('Ошибка: Нарушение нумерации генома ',gen.layer_idx)
+          prn(self.print_genom(full_genom))
+          return False
+        layer_idx = gen.layer_idx
+        
       if gen.var_name == "inbound_layers":
           edjes = gen.value
           for conn_in in edjes:
@@ -1190,7 +1318,7 @@ class gen_net(object):
     # Восстановим доп. инфу
     self.__final_layer__.shape_out = shape_out
     self.__final_layer__.data = data
-
+    #print('asgas',self.print_genom(self.get_genom()))
     return True
 
   # Извлечение графа из генотипа
@@ -1329,7 +1457,10 @@ class gen_net(object):
     sorted_node_in.sort(reverse=False)
     #prn('замыкание in',sorted_node_in)
     for n_in in sorted_node_in:
-        n_out = random.randint(0,n_in-1)
+        try:
+          n_out = random.randint(0,n_in-1)
+        except:
+          return None
         full_graph.append((n_out,n_in))
         #prn('замыкание 2',(n_out,n_in))
         all_node_in.discard(n_in)
@@ -1455,8 +1586,10 @@ class gen_net(object):
 # Класс Генетического алгоритма для поиска оптимальной модели нееросети
 #///////////////////////////////////////////////////////////////////////////////
 
-class kerasin:
-  # complexity - сложность задачи от 1 и выше. max_layer = x5 complexity
+class kerasin:  
+  # complexity - сложность сети 1 - на 5 слоев, 2-на 10 и т.п. Количество слоев при генерации ботов точно не соблюдается. max_layer = x5 complexity
+  # nPopul - размер популяции
+  # maxi_goal - целевая функция метрики. True если максимизация(accuracy), False - минимизация(loss)
   def __init__(self,complexity=1, nPopul=10, maxi_goal = False):
     self.popul = list() # Список популяции
     self.nPopul = nPopul
@@ -1475,10 +1608,13 @@ class kerasin:
     self.maxi_goal = maxi_goal   # Это задача максимизации?
     self.max_layers = 5*complexity  # Примерное количество генерируемых слоев
     self.pSurv = .5 #Процент победителей в общей популяции
+    self.train_generator = None #Ссылка на генератор для fit_generator
+    self.profile = None # Имя профиля для записи ботов
 
   # Генератор имени бота
   def __botname__(self,epoch,num,family):
     return "bot_"+str(epoch).zfill(2)+'.'+str(num).zfill(3)+'('+str(family).zfill(3)+')'
+  
   # Сенерировать nPopul случайных ботов
   def generate(self,nPopul=1,epoch=0):
     for idx in range(nPopul):
@@ -1488,21 +1624,27 @@ class kerasin:
       G.addOutput( self.shape_out,self.output_layer )
       G.generate(self.max_layers,1)
       self.popul.append( G )
+      if self.profile != None:
+        G.save(self.profile+'/')
       #print('Создан бот',G.name)
+
   # Добавить бота из модели
   def addModel(self,model,name='loaded bot'):
     G=gen_net(name)
     G.load(model)
     self.popul.append( G )
   # Добавить описание входа моделей
+  # shape - форма входа(Без batch размерности) для mnist это может быть (28,28) или (784,)
+  # isSequence - указание на то, что в подаваемых данных важна последовательность
   def addInput(self,shape,isSequence = False):
     self.shape_in = shape
     self.is_sequence = isSequence
   # Добавить описание выхода моделей
+  # shape - форма выхода. layer = выходной слой керас
   def addOutput(self,shape,layer):
     self.output_layer = layer
     self.shape_out = shape
-  # Определить параметры обучения популяции
+  # Описываем параметры обучения популяции
   def compile(self, optimizer="adam", loss=None, metrics=None ):
     self.loss=loss
     self.optimizer=optimizer
@@ -1529,6 +1671,8 @@ class kerasin:
     self.x_test=x_test
     self.y_test=y_test
   # Запуск Эволюции на nEpochs генетических эпох
+  # Не путать!:  ga_epochs - количество эпох генетики, 
+  #              epoch - количество эпох обучения модели
   def fit( self, 
             ga_epochs=1,
             x=None,
@@ -1538,7 +1682,8 @@ class kerasin:
             verbose="auto",
             validation_split=0.0,
             x_val=None,
-            y_val=None
+            y_val=None,
+            rescore = False
         ):  
     self.x_train=x
     self.y_train=y
@@ -1555,45 +1700,176 @@ class kerasin:
     #  print('Нет данных для обучения')
     #  return False
     #self.val_data = None
-    for epoch in range(ga_epochs): 
+    if self.profile == None: start_epoch = 0
+    else: start_epoch = self.__get_epochs_in_profile__()
+    
+    for epoch in range(start_epoch,start_epoch+ga_epochs): 
       print('================',epoch+1,'EPOCH OF GA ================')
-      self.__epoch__(epoch+1,(epoch+1)/ga_epochs)
+      self.__epoch__(epoch+1,(epoch+1-start_epoch)/ga_epochs,rescore)
     self.report(True)
-  #def copyBot(self,id_from)
-  #  clone = gen_net()
-  
+    return True
+
+  # Запуск Эволюции на nEpochs генетических эпох c генератором
+  # Не путать!:  ga_epochs - количество эпох генетики, 
+  #              epoch - количество эпох обучения модели
+  def fit_generator( self, 
+            ga_epochs=1,
+            train_gen = None,
+            batch_size=None,
+            epochs=1,
+            verbose="auto",
+            validation_gen = None,
+            rescore = False
+        ):  
+    if train_generator == None:
+      print('определите генератор')
+      return False
+    self.train_generator  = train_gen
+    self.validation_generator = validation_gen
+    self.fit_epochs=epochs
+    self.batch_size=batch_size
+    self.verbose=verbose
+
+    if self.output_layer == None:
+      print('Error: Нет данных о финальном слое. Используйте addOutput()')
+      return False
+    
+    if self.profile == None: start_epoch = 0
+    else: start_epoch = self.__get_epochs_in_profile__()
+    
+    for epoch in range(start_epoch,start_epoch+ga_epochs): 
+      print('================',epoch+1,'EPOCH OF GA ================')
+      self.__epoch__(epoch+1,(epoch+1-start_epoch)/ga_epochs,rescore)
+    self.report(True)
+    return True
+
+  # Задаем имя профиля когда хотим чтобы в каталог с этим именем 
+  # выгружались боты после генерации
+  def set_profile(self,profile_name,path=''):
+    self.profile = path+profile_name+str(self.shape_in)+'-'+str(self.shape_out)
+
+  # Задаем имя профиля когда хотим чтобы в каталог с этим именем 
+  # выгружались боты после генерации
+  # nSurv - взять nSurv лучших, (0 - всех)
+  # include_unscored - включать всех у кого нет оценки
+  def show_profile(self,profile_name=None,nSurv=0,include_unscored=True):
+    if profile_name == None:profile_name = self.profile
+    if profile_name == None:
+      print('Профиль не задан')
+      return None
+    if not ')-(' in profile_name: profile_name += str(self.shape_in)+'-'+str(self.shape_out)
+    g = gen()
+    bot_scored_list = []
+    bot_unscored_list = []
+    for root, dirs, files in os.walk(self.profile+'/'):
+      for filename in files:
+        if not '.gn' in filename: continue
+        #print(filename)
+        file = open(self.profile+'/'+filename, 'r')
+        lines = file.readlines()
+        lst = [filename[0:15],self.profile+'/'+filename,0,0,'',None,None,None]
+        for line in lines:
+          if not g.load_csv(line.strip()): continue
+          if g.layer_idx == 9999:
+            if g.var_name == 'output_shape':
+              lst[5] = g.value
+            elif g.var_name == 'description':              
+              lst[4] = str(g.value)
+            elif g.var_name == 'family':
+              lst[3] = int(g.value)
+            elif g.var_name == 'score':
+              lst[2] = float(g.value)
+        if lst[2]>0:
+          bot_scored_list.append(tuple(lst))
+        elif include_unscored:
+          bot_unscored_list.append(tuple(lst))
+        file.close()
+    bot_scored_list.sort( key=lambda x:x[2], reverse=self.maxi_goal)   # сортируем по оценке
+    if nSurv>0:
+      while len(bot_scored_list) >= nSurv: bot_scored_list.pop()
+    bot_scored_list.extend(bot_unscored_list)
+    return bot_scored_list
+
+  # Считаем количество пройденых эпох по ботам в профиле
+  def __get_epochs_in_profile__(self,profile_name=None):
+    if profile_name == None:profile_name = self.profile+'/'
+    if profile_name == None:
+      print('Профиль не задан')
+      return None
+    if not ')-(' in profile_name: profile_name += str(self.shape_in)+'-'+str(self.shape_out)
+    max_epoch = 0
+    for root, dirs, files in os.walk(self.profile+'/'):
+      for filename in files:
+        if not '.gn' in filename: continue
+        #print('FA',filename[4:6])
+        max_epoch = max(max_epoch,int(filename[4:6]))
+    print('Обнаружено GA эпох',max_epoch)
+    return max_epoch
+
+
   # Процедура одной генетической эпохи
-  def __epoch__(self,epoch,progress):
+  def __epoch__(self,epoch,progress,rescore = False):
     def getBotInExpovariate(lmb,excluse_bots={}):
+      # Исключаем близкородственные скрещивания
+      excluse_family = set()
+      for i in excluse_bots:
+        excluse_family.add(self.popul[i].get_family())
       for i in range(100):
         nBot = int(random.expovariate(lmb))
-        if not nBot in excluse_bots and nBot<self.nPopul: return nBot
+        if not nBot in excluse_bots and nBot<self.nPopul and (not self.popul[nBot].get_family() in excluse_family): return nBot
       # Достигнут лимит
       return 0
+
+    nSurv = self.pSurv*self.nPopul    
+    #print(self.show_profile(self.profile+'/'))
+    if len(self.popul)==0 and self.profile != None:
+      # Из фонда получаем nSurv лучших ботов плюс всех не прошедших оценку
+      for bot_name,bot_file,bot_score,_,_,_,_,_ in self.show_profile(self.profile+'/',nSurv,True):
+        bot = gen_net('',0)
+        #bot.addInput(self.shape_in)
+        bot.addOutput(self.shape_out,self.output_layer)
+        if bot.load(bot_name,self.profile+'/'):
+          print('Загружен бот ',bot_name,'с оценкой',bot_score)
+          self.popul.append(bot)
+      print('Загружено ',len(self.popul),'ботов профиля',self.profile)
+
     # Пополнение популяции случайными представителями
     nRndBots = self.nPopul-len(self.popul)
     if nRndBots>0: 
       self.generate(nRndBots,epoch)
       print('Сгенерированы ',nRndBots,'случайных ботов')
-
+    
     # Тестируем популяцию
     new_popul = []
-    nSurv = self.pSurv*self.nPopul
     for idx in range(len(self.popul)):
       bot = self.popul[idx]
-      if bot.score ==-1:
+      if bot.score == -1 or rescore:
         model = bot.model
         model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
-        bot.hist = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),verbose=self.verbose)
-        if self.maxi_goal:
-          bot.score = max(bot.hist.history['val_accuracy'])
+        start_time = time.time()
+        if self.train_generator:
+          history = model.fit_generator( self.train_generator, steps_per_epoch = self.train_generator.samples // self.batch_size,
+            validation_data = self.validation_generator, validation_steps = self.validation_generator.samples // self.batch_size, 
+            epochs=self.fit_epochs, verbose=self.verbose)
         else:
-          bot.score = min(bot.hist.history['val_accuracy'])
+          history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),verbose=self.verbose)
+        bot.hist = history.history
+        bot.train_duration = int(time.time()-start_time)
+        if self.maxi_goal:
+          bot.score = max(bot.hist['val_accuracy'])
+        else:
+          bot.score = min(bot.hist['val_accuracy'])
         if self.x_test!=None and self.y_test!=None:
           bot.score = model.evaluate(self.x_test,self.y_test,verbose=0)
+        if self.profile != None: bot.save(self.profile+'/')
         #bot.sequence()
-      print(str(idx+1).zfill(2),bot.name,' Оценка =',round(bot.score,7),bot.description)
+      print(str(idx+1).zfill(2),bot.name,' Оценка =',round(bot.score,7),'за',bot.train_duration,'cек.',bot.description)
       #bot.SetScore(scores,hist)
+    
+    
+    #for bot in self.popul:
+        
+
     # Отбираем победителей
     self.popul.sort( key=lambda bot: bot.score, reverse=self.maxi_goal)   # сортируем по оценке
     if progress == 1: return True
@@ -1617,25 +1893,30 @@ class kerasin:
           desc += self.popul[parent].name+','
           #family_idx = min(parent,family_idx)
         family = self.popul[min(parents)].get_family()
-        bot=gen_net( self.__botname__(epoch,len(new_popul)+1,family), family )
+        bot=gen_net( self.__botname__(epoch+1,len(new_popul)+1,family), family )
         #bot.addInput(self.shape_in, self.is_sequence)
         bot.addOutput(self.shape_out,self.output_layer) 
         res = bot.crossover([self.popul[parent].get_genom(False) for parent in parents])
+        if not res: print('неудачный кросовер от',parents)
         # Если кросовер не удачен с этими родителями, идем за следующими
 
-      bot.mutate(random.random()*.2)
+      #bot.mutate(random.random()*.2)
       new_popul.append(bot)
       bot.description = "Потомок "+desc+';'+ bot.description
       print('Бот',bot.name,'потомок ботов',parents)
     # Мутации другой половины победителей
     for i in range(int(nSurv/2)):
       nBot = getBotInExpovariate(.2)
+      #print('dzshae',nBot)
       bot = self.popul[nBot].copy()
-      bot.name = self.__botname__(epoch,len(new_popul)+1, bot.get_family())
-      bot.description = "Мутант от "+self.popul[nBot].name+';'+ bot.description
-      bot.mutate(random.random()*.5)
-      new_popul.append(bot)
-      print('Бот',bot.name,'мутировал из бота',nBot)
+      if bot:
+        bot.name = self.__botname__(epoch+1,len(new_popul)+1, bot.get_family())
+        bot.description = "Мутант от "+self.popul[nBot].name+';'+ bot.description
+        bot.mutate(random.random()*.5)
+        new_popul.append(bot)
+        print('Бот',bot.name,'мутировал из бота',nBot)
+      else
+        print('От бота',self.popul[nBot].name,'мутация не удалась')
     # Удаляем с аутсайдеров
     #for idx in range(nPopul-nSurv): self.popul.pop()
     self.popul = new_popul
@@ -1655,10 +1936,29 @@ class kerasin:
       print('*************** BEST MODEL ****************')
       print('Бот:',best.name,':',best.description)
       best.model.summary()
-      print(best.hist.history)
-      plt.plot(best.hist.history['loss'])
-      plt.plot(best.hist.history['val_loss'])
+      #print(best.hist)
+      print('------------ Геном -----------')
+      gn = best.sequence()
+      print(best.print_genom(gn))
+      plt.title('Loss Plot')
+      plt.plot(best.hist['loss'],label='LOSS')
+      plt.plot(best.hist['val_loss'],label='VAL_LOSS')
+      plt.xlabel('Эпохи')
+      plt.ylabel('Значение')
+      plt.legend()
       plt.show()
+      if 'accuracy' in best.hist: 
+        plt.title('Accuracy Plot')
+        plt.plot(best.hist['accuracy'],label='ACCURACY')
+        plt.plot(best.hist['val_accuracy'],label='VAL_ACCURACY')
+        plt.xlabel('Эпохи')
+        plt.ylabel('Значение')
+        plt.legend()
+        plt.show()
+        
+  # Получить керас модель от idx бота популяции
+  def get_model(self,idx=0):
+    return self.popul[idx].model
 
   # Оценка качества текущей популяции на устойчивость к объему данных, 
   # переобученность и зависимость от количества эпох
