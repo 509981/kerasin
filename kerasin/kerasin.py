@@ -2035,7 +2035,7 @@ class kerasin:
         if self.maxi_goal:
           bot.score = max(bot.hist['val_accuracy'])
         else:
-          bot.score = min(bot.hist['val_accuracy'])
+          bot.score = min(bot.hist['val_loss'])
         if self.x_test!=None and self.y_test!=None:
           bot.score = model.evaluate(self.x_test,self.y_test,verbose=0)
         if self.profile != None: bot.save(self.profile+'/')
