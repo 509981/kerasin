@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
    name='kerasin',
-   version='1.1',
+   version='1.2',
    description='Optimization keras model by GA',
    author='Dmitry Utenkov',
    author_email='509981@gmail.com',
