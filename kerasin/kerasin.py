@@ -1,12 +1,12 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.1 от 12 августа 2021 г.`
+#Версия 1.2 от 19 августа 2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
 
-
 #import networkx as nx
+#from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -16,7 +16,7 @@ from copy import deepcopy
 
 from tensorflow.keras.layers import Dense,Dropout,Input,concatenate,BatchNormalization,Conv2D,MaxPooling2D
 from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise
-from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LSTM
+from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LSTM,LeakyReLU
 from tensorflow.keras.models import Model,clone_model
 from tensorflow.keras import utils
 import keras.backend as K
@@ -28,9 +28,9 @@ def prn(*arg):
   if trace: print(arg)
 
 
-#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#///////////////////////////////////////////////////////////////////////////////
 # Генерация нециклического орграфа c одним выходом и 1-4 входами
-#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#///////////////////////////////////////////////////////////////////////////////
 
 class neuro_graph:
   def __init__(self):
@@ -203,7 +203,7 @@ class neuro_graph:
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
 types_list = ['Dense', 'Dense', 'Conv2D', 'Conv2D','Conv1D','Conv1D',\
-                 'MaxPooling1D','MaxPooling2D','LSTM','GaussianNoise']
+                 'MaxPooling1D','MaxPooling2D','LSTM','GaussianNoise','Flatten']
 
 #types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
 #ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization']                 
@@ -314,13 +314,14 @@ class gen(object):
     elif self.var_name == 'unroll': self.value = (random.random() < .3) #LSTM
     elif self.var_name == 'stateful': self.value = (random.random() < .3) #LSTM
     elif self.var_name == 'pool_size': self.value = random.randint(2,4) #MaxPooling
+    elif self.var_name == 'alpha': self.value = random.random() #LeakyReLU
     elif self.var_name == 'kernel_size': 
-      winsize = random.randint(3,7)
+      winsize = random.randint(2,7)
       if '1D' in self.name: self.value = (winsize,)
       elif '2D' in self.name: self.value = (winsize,winsize)
       elif '3D' in self.name: self.value = (winsize,winsize,winsize)
     elif self.var_name == 'strides': 
-      val = random.randint(1,3)
+      val = random.randint(1,4)
       if '1D' in self.name: self.value = (val,)
       elif '2D' in self.name: self.value = (val,val)
       elif '3D' in self.name: self.value = (val,val,val)
@@ -467,7 +468,7 @@ class gen_layer(object):
   def sequence(self,idx_layer):
     #prn(len(self.sublayer)) 
     if self.connector == None: 
-      print('нет слоя для сиквенции',self.list_in,self.list_out)
+      print(idx_layer,' - нет слоя для сиквенции',self.list_in,self.list_out)
       assert not self.IsInactiveLayer() # Не пустой слой причина?
       return None    
     self.genom.clear()
@@ -519,6 +520,13 @@ class gen_layer(object):
   # Установить тип слоя
   #def SetNeuro(self,neurotype): self.neurotype = neurotype
 
+  def get_idx(self,name):
+    for idx in range(len(self.__sublayers__)):      
+      if self.__sublayers__[idx].name == name: 
+        #print(self.layers[idx].__sublayers__[0].name, idx)
+        return idx
+    return -1
+
 
   # Подбираем слой под входящую конфигурацию
   def __suggest_layer__(self,inbound_layers):
@@ -533,7 +541,7 @@ class gen_layer(object):
       while True:
         neurotype = random.sample(types_list,1)[0]
         #prn(neurotype,layer_in_name) 
-        if neurotype == 'Flatten' and shape_dim>1: break; # and layer_in != 'Flatten':
+        if neurotype == 'Flatten'  and random.random()<.1 and shape_dim>1 and neurotype != layer_in_name: break; # and layer_in != 'Flatten':
         elif neurotype == 'MaxPooling2D' and shape_dim==3: break
         elif neurotype == 'Conv2D' and shape_dim==3: break
         elif neurotype == 'MaxPooling1D' and shape_dim==2: break
@@ -569,6 +577,9 @@ class gen_layer(object):
       x = Dropout(.5)
     elif neurotype == 'BatchNormalization':
       x = BatchNormalization()
+    elif neurotype == 'LeakyReLU':
+      x = LeakyReLU()
+      
     else:
       print('недопустимый слой:',neurotype)
       assert False
@@ -636,6 +647,8 @@ class gen_layer(object):
         x = Dropout.from_config(cfg)(x)
       elif neurotype == 'BatchNormalization':
         x = BatchNormalization.from_config(cfg)(x)
+      elif neurotype == 'LeakyReLU':
+        x = LeakyReLU.from_config(cfg)(x)
       else:
         print(neurotype,' - неописаный слой')
         return None  
@@ -651,18 +664,21 @@ class gen_layer(object):
 
   # Добавляем вспомогательные слои
   def __create_extralayers__(self,x):
-    layer_in_name = x._keras_history.layer.__class__.__name__
-    if True: #layer_in_name == 'Dense':
-      if random.random()>.7:
-        #prn('сборка слоя - Dropout')
-        arg = self.__get_layer_params__('Dropout')
-        cfg = self.__mutate__('Dropout',arg)
-        x = self.__create_layer__('Dropout',[x],cfg)
-      if random.random()>.7:
-        #prn('сборка слоя - BatchNormalization')
-        arg = self.__get_layer_params__('BatchNormalization')
-        cfg = self.__mutate__('BatchNormalization',arg)
-        x = self.__create_layer__('BatchNormalization',[x],cfg)
+    layer_in_name = x._keras_history.layer.__class__.__name__     
+    if random.random()>.7:
+      #prn('сборка слоя - Dropout')
+      arg = self.__get_layer_params__('Dropout')
+      cfg = self.__mutate__('Dropout',arg)
+      x = self.__create_layer__('Dropout',[x],cfg)
+    if random.random()>.7:
+      #prn('сборка слоя - BatchNormalization')
+      arg = self.__get_layer_params__('BatchNormalization')
+      cfg = self.__mutate__('BatchNormalization',arg)
+      x = self.__create_layer__('BatchNormalization',[x],cfg)
+    if random.random()>.85: #1/8 layer_in_name == 'Dense' 
+      arg = self.__get_layer_params__('LeakyReLU')
+      cfg = self.__mutate__('LeakyReLU',arg)
+      x = self.__create_layer__('LeakyReLU',[x],cfg)
     return x
 
   # Проводим мутацию аргументов слоя без сохранения
@@ -800,6 +816,9 @@ class gen_net(object):
   def get_family(self):
     return self.__family__
 
+  def set_family(self,family):
+    self.__family__ = family
+
   '''
   def __deepcopy__(self, memo): # memo is a dict of id's to copies
         id_self = id(self)        # memoization avoids unnecesary recursion
@@ -835,6 +854,13 @@ class gen_net(object):
     file.write( gen(9999,0,'','family',self.__family__).save_csv())
     file.write( gen(9999,0,'','score',self.score).save_csv())
     file.write( gen(9999,0,'','train_duration',self.train_duration).save_csv())
+
+    trainable_count = int(np.sum([K.count_params(p) for p in self.model.trainable_weights]))
+    non_trainable_count = int(np.sum([K.count_params(p) for p in self.model.non_trainable_weights]))
+
+    file.write( gen(9999,0,'','trainable_count',trainable_count).save_csv())
+    file.write( gen(9999,0,'','non_trainable_count',non_trainable_count).save_csv())
+
 
     hist = self.hist
     if hist != None:
@@ -877,6 +903,10 @@ class gen_net(object):
             self.train_duration = int(g.value)
           elif g.var_name in 'val_loss val_accuracy':
             hist[g.var_name].append(float(g.value))
+          elif g.var_name == 'non_trainable_count':
+            pass
+          elif g.var_name == 'trainable_count':
+            pass
         else:
           full_genom.append(g)
       file.close()
@@ -885,8 +915,14 @@ class gen_net(object):
       #G = gen_net(name,15)
       self.name = name
       self.hist = hist
-      self.load_genom(full_genom)
-      self.synthesis()
+      if not self.load_genom(full_genom):
+        print('не смог инициализировать модель по загруженому геному',path+name+'.gn')
+        return False
+
+      if self.synthesis() == None:
+        print('не смог синтезировать загруженую модель',path+name+'.gn')
+        return False
+
     except:
       print('не смог загрузить',path+name+'.gn')
       return False
@@ -987,7 +1023,7 @@ class gen_net(object):
   #   Сохранение/чтение модели
   #
   #   Сохранить модель в файл
-  def saveModel(self,fname):
+  def save_model_to_file(self,fname):
     json_string = self.model.to_json()
     try:
       f = open(fname, 'w')
@@ -997,7 +1033,7 @@ class gen_net(object):
     finally:
       f.close()
   #   Прочитать модель из файла
-  def loadModel(self,fname):
+  def load_model_from_file(self,fname):
     try:
       f = open(fname)
       json_string = f.read()
@@ -1051,13 +1087,12 @@ class gen_net(object):
       # Случай когда между выходом и финалом неактивный слой
       self.layers[out_idx].list_out.clear()
 
-    #prn(self.__final_layer__.data.shape)  
-    self.__final_layer__.finish(out_con)
-    self.__final_layer__.list_in.clear()
-    self.__final_layer__.list_in.append(out_idx)
-
+    #prn(self.__final_layer__.data.shape)
     try:
-        self.model = Model(model_in, self.__final_layer__.connector)
+      self.__final_layer__.finish(out_con)
+      self.__final_layer__.list_in.clear()
+      self.__final_layer__.list_in.append(out_idx)
+      self.model = Model(model_in, self.__final_layer__.connector)
     except:
       prn('Err: ошибка сборки модели')
     return self.model
@@ -1580,6 +1615,85 @@ class gen_net(object):
     #self.genom = children_genom
     return model
 
+  #   Прочитать модель из файла
+  def load_model(self,model):
+    def remove_dim(t):
+      s = list(t)
+      s.pop(0)
+      return tuple(s)
+      
+    self.clearModel()
+    self.model = model
+    if len(self.description)==0:
+      self.description = 'Загружено из keras модели '+ model.name
+    nodes = dict()
+    for layer in model.layers:
+      ltype = layer.__class__.__name__
+      layer_name = layer.name
+      layer_in_name  = layer.get_input_at(0).name.split('/')[0]
+      if 'module_wrapper' in layer_name:
+        print('Не могу работать с module_wrapper !!!')
+        return None
+      
+      if '_input' in layer.get_input_at(0).name:
+        newlayer = gen_layer()
+        newlayer.shape_out = remove_dim(layer.input_shape)
+        newlayer.build_layer([])
+        #newlayer.addLayer( layer )
+        #newlayer.connector = layer.get_output_at(0)
+        self.layers.append( newlayer )
+        nodes[newlayer.__sublayers__[0].name] = newlayer
+        #print(newlayer.__sublayers__[0].name)
+
+      #print( '>',layer_name )
+      if ltype in types_list or ltype == 'InputLayer':
+        newlayer = gen_layer()
+        newlayer.addLayer( layer )
+        newlayer.connector = layer.get_output_at(0)
+        if len(layer.outbound_nodes) == 0: #Финальный слой
+          self.__final_layer__ =  newlayer
+          newlayer.shape_out = remove_dim(layer.output_shape)
+          newlayer.data = layer
+        else:
+          self.layers.append( newlayer )
+
+        nodes[layer_name] = newlayer
+
+        for idx in range(len(layer.inbound_nodes)):
+          layer_cor_name  = layer.get_input_at(idx).name.split('/')[0]
+          #print('sg',layer_cor_name)
+          if '_input' in layer_cor_name:  # Input в модели Sequential
+            self.addConnection(0,len(self.layers)-1)
+            #print(0,'to ! ',len(self.layers)-1)
+          elif 'input' in layer_cor_name and 'input' in layer_name:  # Input в функциональной модели 
+            newlayer.shape_out = remove_dim(layer.input_shape)
+          else:
+            i = self.__get_idx__( layer_cor_name )
+            if i != -1: 
+              if len(layer.outbound_nodes) == 0:
+                self.__final_layer__.addConnectionIn( i )
+              else:
+                self.addConnection(i,len(self.layers)-1)
+                #print(i,'to',len(self.layers)-1)
+            #newlayer.addConnectionIn( i )
+
+        '''
+        for idx in range(len(layer.outbound_nodes)):
+          layer_cor_name  = layer.get_output_at(idx).name.split('/')[0]
+          i = self.__get_idx__( layer_cor_name )
+          if i != -1: newlayer.addConnectionOut( i )
+        '''
+      elif ltype == 'Dropout' or ltype == 'BatchNormalization':
+        #print('drop')
+        nodes[layer_in_name].addLayer( layer )
+        nodes[layer_in_name].connector = layer.get_output_at(0)
+    #print(nodes)
+
+  def __get_idx__(self,name):
+    for idx in range(len(self.layers)):
+      if self.layers[idx].get_idx(name) > -1:
+        return idx
+    return -1
 
 
 #///////////////////////////////////////////////////////////////////////////////
@@ -1610,6 +1724,11 @@ class kerasin:
     self.pSurv = .5 #Процент победителей в общей популяции
     self.train_generator = None #Ссылка на генератор для fit_generator
     self.profile = None # Имя профиля для записи ботов
+    # Управление Генетическим алгоритмом
+    # 1. Распределение популяции 'popul_distribution' кортеж: (доля оставляемых чемпионов, доля ботов полученых кросовером,
+    #                                доля ботов полученых мутацией, доля случайных ботов). По умолчанию (5,25,25,45)
+    # Все доли будут нормированы и приведены к 100%
+    self.ga_control = {'popul_distribution': (5,25,25,45)}
 
   # Генератор имени бота
   def __botname__(self,epoch,num,family):
@@ -1629,19 +1748,25 @@ class kerasin:
       #print('Создан бот',G.name)
 
   # Добавить бота из модели
-  def addModel(self,model,name='loaded bot'):
-    G=gen_net(name)
-    G.load(model)
+  # model - керас модель
+  # name - имя бота
+  def add_model(self,model,name=''):
+    #self.nFamily += 1
+    if name == '': name = model.name
+    G=gen_net(name,-1)#self.nFamily)
+    G.load_model(model)
+    # Проверить соответствие  shape !!!!
     self.popul.append( G )
+
   # Добавить описание входа моделей
   # shape - форма входа(Без batch размерности) для mnist это может быть (28,28) или (784,)
   # isSequence - указание на то, что в подаваемых данных важна последовательность
-  def addInput(self,shape,isSequence = False):
+  def add_input(self,shape,isSequence = False):
     self.shape_in = shape
     self.is_sequence = isSequence
   # Добавить описание выхода моделей
   # shape - форма выхода. layer = выходной слой керас
-  def addOutput(self,shape,layer):
+  def add_output(self,shape,layer):
     self.output_layer = layer
     self.shape_out = shape
   # Описываем параметры обучения популяции
@@ -1651,7 +1776,7 @@ class kerasin:
     self.metrics=metrics
     return
   # Определить параметры обучения популяции
-  def SetParam(self, epochs, batch_size, maxi_goal=False, loss="mse",optimizer="adam",metrics=["accuracy"],verbose=0):
+  def set_param(self, epochs, batch_size, maxi_goal=False, loss="mse",optimizer="adam",metrics=["accuracy"],verbose=0):
     self.fit_epochs=epochs
     self.batch_size=batch_size
     self.verbose=verbose
@@ -1661,13 +1786,13 @@ class kerasin:
     self.maxi_goal = maxi_goal
     return
   # Определить данные для обучения и валидации
-  def SetTrain(self, x_train, y_train, x_val = None, y_val = None):
+  def set_train(self, x_train, y_train, x_val = None, y_val = None):
     self.x_train=x_train
     self.y_train=y_train
     self.x_val=x_val
     self.y_val=y_val
   # Определить данные для тестирования моделей
-  def SetTest(self, x_test, y_test):
+  def set_test(self, x_test, y_test):
     self.x_test=x_test
     self.y_test=y_test
   # Запуск Эволюции на nEpochs генетических эпох
@@ -1705,7 +1830,7 @@ class kerasin:
     
     for epoch in range(start_epoch,start_epoch+ga_epochs): 
       print('================',epoch+1,'EPOCH OF GA ================')
-      self.__epoch__(epoch+1,(epoch+1-start_epoch)/ga_epochs,rescore)
+      if self.__epoch__(epoch+1,(epoch+1-start_epoch)/ga_epochs,rescore): return False
     self.report(True)
     return True
 
@@ -1721,7 +1846,7 @@ class kerasin:
             validation_gen = None,
             rescore = False
         ):  
-    if train_generator == None:
+    if train_gen == None:
       print('определите генератор')
       return False
     self.train_generator  = train_gen
@@ -1739,7 +1864,7 @@ class kerasin:
     
     for epoch in range(start_epoch,start_epoch+ga_epochs): 
       print('================',epoch+1,'EPOCH OF GA ================')
-      self.__epoch__(epoch+1,(epoch+1-start_epoch)/ga_epochs,rescore)
+      if self.__epoch__(epoch+1,(epoch+1-start_epoch)/ga_epochs,rescore): return False
     self.report(True)
     return True
 
@@ -1767,13 +1892,12 @@ class kerasin:
         #print(filename)
         file = open(self.profile+'/'+filename, 'r')
         lines = file.readlines()
-        lst = [filename[0:15],self.profile+'/'+filename,0,0,'',None,None,None]
+        
+        lst = [filename.replace('.gn',''),self.profile+'/'+filename,0,0,'',None,None,None]
         for line in lines:
           if not g.load_csv(line.strip()): continue
           if g.layer_idx == 9999:
-            if g.var_name == 'output_shape':
-              lst[5] = g.value
-            elif g.var_name == 'description':              
+            if g.var_name == 'description':              
               lst[4] = str(g.value)
             elif g.var_name == 'family':
               lst[3] = int(g.value)
@@ -1798,14 +1922,50 @@ class kerasin:
       return None
     if not ')-(' in profile_name: profile_name += str(self.shape_in)+'-'+str(self.shape_out)
     max_epoch = 0
+    max_family = 0
     for root, dirs, files in os.walk(self.profile+'/'):
       for filename in files:
         if not '.gn' in filename: continue
         #print('FA',filename[4:6])
-        max_epoch = max(max_epoch,int(filename[4:6]))
-    print('Обнаружено GA эпох',max_epoch)
+        try:
+          max_epoch = max(max_epoch,int(filename[4:6]))
+          max_family = max(max_family,int(filename[11:14]))
+        except:
+          pass # вероятно имя задано вручную
+    print('Обнаружено GA эпох',max_epoch,'. Фамилий:',max_family)
+    self.nFamily = max_family
     return max_epoch
 
+  # Загрузить бота с именем bot_name из профиля в популяцию
+  # Возвращает индекс бота в популяции
+  def load_bot(self, bot_name):
+    # Проверим, возможно бот уже в популяции
+    idx = self.get_index(bot_name)
+    if idx>-1: 
+      print('Бот с именем',bot_name,'- уже в популяции. Не загружаю.')
+      if self.popul[idx].get_family() == -1:
+        print('Предотвращена попытка загрузки посевного бота с одинаковым именем',bot_name)
+        return None
+      return idx
+    bot = gen_net('',0)
+    bot.addOutput(self.shape_out,self.output_layer)
+    if bot.load(bot_name,self.profile+'/'):
+      self.popul.append(bot)
+      #print('Загружен бот ',bot_name,'с оценкой',bot_score)
+      return len(self.popul)-1
+    return None
+
+  # Возвращает индекс бота в популяции
+  # -1 если бота в текущей популяции нет
+  def get_index(self, bot_name):
+    for idx in range(len(self.popul)):
+      if self.popul[idx].name == bot_name: return idx
+    return -1
+
+  # Возвращает имя бота по индексу
+  def get_bot_name(self, bot_idx = 0):
+    if bot_idx >= len(self.popul): raise KeyError('Индекс больше размера популяции')
+    return self.popul[bot_idx].name
 
   # Процедура одной генетической эпохи
   def __epoch__(self,epoch,progress,rescore = False):
@@ -1816,22 +1976,34 @@ class kerasin:
         excluse_family.add(self.popul[i].get_family())
       for i in range(100):
         nBot = int(random.expovariate(lmb))
-        if not nBot in excluse_bots and nBot<self.nPopul and (not self.popul[nBot].get_family() in excluse_family): return nBot
+        if not nBot in excluse_bots and nBot<len(self.popul) and (not self.popul[nBot].get_family() in excluse_family): return nBot
       # Достигнут лимит
       return 0
+    def get_qty_of_popul(idx):
+      qty = self.ga_control['popul_distribution'][idx]/sum(self.ga_control['popul_distribution'])*self.nPopul
+      if qty>0 and int(qty)==0: return 1
+      return int(qty)
+
+    # Это первый проход?
+    # В первом проходе в популяции могут быть только боты посева
+    first_pass = sum([1 for b in self.popul if b.get_family()!=-1])==0
 
     nSurv = self.pSurv*self.nPopul    
     #print(self.show_profile(self.profile+'/'))
-    if len(self.popul)==0 and self.profile != None:
+    if first_pass and self.profile != None:
       # Из фонда получаем nSurv лучших ботов плюс всех не прошедших оценку
       for bot_name,bot_file,bot_score,_,_,_,_,_ in self.show_profile(self.profile+'/',nSurv,True):
-        bot = gen_net('',0)
-        #bot.addInput(self.shape_in)
-        bot.addOutput(self.shape_out,self.output_layer)
-        if bot.load(bot_name,self.profile+'/'):
+        if self.load_bot(bot_name) != None:
           print('Загружен бот ',bot_name,'с оценкой',bot_score)
-          self.popul.append(bot)
+        else:
+          return True
       print('Загружено ',len(self.popul),'ботов профиля',self.profile)
+
+    # На этом этапе боты посева имеют фамилию -1. Исправим это
+    for bot in self.popul:
+      if bot.get_family() == -1:
+        self.nFamily += 1
+        bot.set_family(self.nFamily)
 
     # Пополнение популяции случайными представителями
     nRndBots = self.nPopul-len(self.popul)
@@ -1875,11 +2047,11 @@ class kerasin:
     if progress == 1: return True
     self.report()
     # Оставляем лучших
-    for idx in range(1):
+    for idx in range(get_qty_of_popul(0)):
       new_popul.append(self.popul[idx])
     print('Оставляем',len(new_popul),'лучших ботов предыдущей популяции')
-    # Кроссовер половины победителей
-    for idx in range(int(nSurv/2)):
+    # Кроссовер 
+    for idx in range(get_qty_of_popul(1)):
       res=None
       while res==None:
         # Выбираем родителей по экспотенциальному распределению. #(параметр - чуть выше вероятности выбора 0-ого элемента, остальные по нисходящей)
@@ -1905,7 +2077,7 @@ class kerasin:
       bot.description = "Потомок "+desc+';'+ bot.description
       print('Бот',bot.name,'потомок ботов',parents)
     # Мутации другой половины победителей
-    for i in range(int(nSurv/2)):
+    for i in range(get_qty_of_popul(2)):
       nBot = getBotInExpovariate(.2)
       #print('dzshae',nBot)
       bot = self.popul[nBot].copy()
@@ -1920,6 +2092,7 @@ class kerasin:
     # Удаляем с аутсайдеров
     #for idx in range(nPopul-nSurv): self.popul.pop()
     self.popul = new_popul
+    return False
     
   # Отчет по эпохе
   # best_detail - добавляем подробное описание чемпиона
@@ -1955,7 +2128,7 @@ class kerasin:
         plt.ylabel('Значение')
         plt.legend()
         plt.show()
-        
+   
   # Получить керас модель от idx бота популяции
   def get_model(self,idx=0):
     return self.popul[idx].model
