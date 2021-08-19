@@ -2020,9 +2020,14 @@ class kerasin:
         model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
         start_time = time.time()
         if self.train_generator:
+          history = model.fit_generator( self.train_generator,
+            validation_data = self.validation_generator, 
+            epochs=self.fit_epochs, verbose=self.verbose)
+          '''
           history = model.fit_generator( self.train_generator, steps_per_epoch = self.train_generator.samples // self.batch_size,
             validation_data = self.validation_generator, validation_steps = self.validation_generator.samples // self.batch_size, 
             epochs=self.fit_epochs, verbose=self.verbose)
+          '''
         else:
           history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),verbose=self.verbose)
         bot.hist = history.history
