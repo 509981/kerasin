@@ -2084,7 +2084,6 @@ class kerasin:
             val_steps = None
           history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps,
             validation_data = self.validation_generator, validation_steps = val_steps, 
-            epochs=self.fit_epochs, verbose=self.verbose)
         else:
           history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),verbose=self.verbose)
         bot.hist = history.history
