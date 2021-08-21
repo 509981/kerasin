@@ -1730,7 +1730,7 @@ class gen_net(object):
           if i != -1: newlayer.addConnectionOut( i )
         '''
       elif ltype == 'Dropout' or ltype == 'BatchNormalization' or ltype == 'Activation':
-        print('drop',layer_in_name)
+        #print('drop',layer_in_name)
         layer_in_name  = layer_in_name.split('/')[0]
         if self.__get_idx__( layer_in_name )==-1:
             print(layer_name,': Не могу найти входящий слой',layer_in_name)
