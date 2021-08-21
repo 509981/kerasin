@@ -17,7 +17,7 @@ import os
 from copy import deepcopy
 
 from tensorflow.keras.layers import Dense,Dropout,Input,concatenate,BatchNormalization,Conv2D,MaxPooling2D
-from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise
+from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise,Activation
 from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LSTM,LeakyReLU
 from tensorflow.keras.models import Model,clone_model
 from tensorflow.keras import utils
