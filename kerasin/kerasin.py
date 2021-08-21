@@ -24,7 +24,7 @@ from tensorflow.keras import utils
 import keras.backend as K
 
 
-trace = False
+trace = True
 
 def prn(*arg):
   if trace: print(arg)
