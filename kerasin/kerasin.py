@@ -1816,7 +1816,7 @@ class kerasin:
     #self.nFamily += 1
     if name == '': name = model.name
     G=gen_net(name,-1)#self.nFamily)
-    G.add_output(self.shape_out,)
+    G.addOutput(self.shape_out,)
     if G.load_model(model):
       #assert self.shape_in == G.get_shape_in(), 'Форма входа загружаемой модели не совпадает с профилем'
       assert self.shape_out == G.get_shape_out(), 'Форма выхода загружаемой модели не совпадает с профилем'
