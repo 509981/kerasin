@@ -381,6 +381,12 @@ class gen(object):
     return clone
 
 
+
+def remove_batch_dim(shape):
+  s = list(shape)
+  s.pop(0)
+  return tuple(s)
+
 #///////////////////////////////////////////////////////////////////////////////
 # Класс слоя
 #///////////////////////////////////////////////////////////////////////////////
@@ -529,7 +535,7 @@ class gen_layer(object):
 
 
   # Подбираем слой под входящую конфигурацию
-  def __suggest_layer__(self,inbound_layers):
+  def __suggest_layer__(self,inbound_layers,is_sequence=False):
     if len(inbound_layers) == 0:
       return 'InputLayer'
     elif len(inbound_layers) > 1:
@@ -546,7 +552,7 @@ class gen_layer(object):
         elif neurotype == 'Conv2D' and shape_dim==3: break
         elif neurotype == 'MaxPooling1D' and shape_dim==2: break
         elif neurotype == 'Conv1D' and shape_dim>1: break
-        elif neurotype == 'LSTM' and shape_dim==2: break
+        elif neurotype == 'LSTM' and shape_dim==2 and is_sequence: break
         elif neurotype == 'GaussianNoise' and random.random()<.4 and neurotype != layer_in_name: break
         elif neurotype == 'Dense': break
     return neurotype
@@ -579,7 +585,8 @@ class gen_layer(object):
       x = BatchNormalization()
     elif neurotype == 'LeakyReLU':
       x = LeakyReLU()
-      
+    elif neurotype == 'Activation':      
+      x = Activation('relu')
     else:
       print('недопустимый слой:',neurotype)
       assert False
@@ -649,6 +656,8 @@ class gen_layer(object):
         x = BatchNormalization.from_config(cfg)(x)
       elif neurotype == 'LeakyReLU':
         x = LeakyReLU.from_config(cfg)(x)
+      elif neurotype == 'Activation':
+        x = Activation.from_config(cfg)(x)
       else:
         print(neurotype,' - неописаный слой')
         return None  
@@ -693,7 +702,7 @@ class gen_layer(object):
     return self.__genom_to_cfg__(genom, arg)
 
   # Создаем слой случайно или из генотипа
-  def build_layer(self,connectors_in):
+  def build_layer(self,connectors_in,is_sequence=False):
     #if self.neurotype == GInput:
     if len(self.list_in) == 0:
       if self.connector == None:
@@ -710,7 +719,7 @@ class gen_layer(object):
       # Требуется замена типа слоя или создание
       #self.__sublayers__.clear() # !!! __del__ надо?
       while(self.connector == None):
-        layer_type = self.__suggest_layer__(connectors_in)
+        layer_type = self.__suggest_layer__(connectors_in,is_sequence)
         arg = self.__get_layer_params__(layer_type)
         # Для случайного задания параметров нового слоя проводим мутацию всего генома слоя
         cfg = self.__mutate__(layer_type,arg)
@@ -879,7 +888,7 @@ class gen_net(object):
 
   def load(self,name,path):
     full_genom=[]
-    try:
+    if True:#try:
       file = open(path+name+'.gn', 'r')
       #new = gen_net(self.name,self.get_family())
       lines = file.readlines()
@@ -923,9 +932,9 @@ class gen_net(object):
         print('не смог синтезировать загруженую модель',path+name+'.gn')
         return False
 
-    except:
-      print('не смог загрузить',path+name+'.gn')
-      return False
+    #except:
+    #  print('не смог загрузить',path+name+'.gn')
+    #  return False
     return True
 
   # Копирование экземпляра класса
@@ -1007,7 +1016,7 @@ class gen_net(object):
     assert id < self.nodes_in
     self.layers[id].shape_out = shape
     self.layers[id].neurotype = GInput
-    self.is_sequence = is_sequence
+    self.is_sequence = (is_sequence or self.is_sequence)
   #   Добавить Embedding вход
   def addInputEmbedding(self,id, len_dict, is_sequence=False):
     assert id < self.nodes_in
@@ -1015,7 +1024,7 @@ class gen_net(object):
     self.layers[id].shape_out = len_dict
     self.layers[id].neurotype = GEmbedding
   #   Определить параметы выходного слоя
-  #  out_layer - Выходной слой keras
+  #  out_layer - Выходной слой keras 
   def addOutput(self, shape, out_layer):
     self.__final_layer__.data = out_layer
     self.__final_layer__.shape_out = shape
@@ -1060,7 +1069,7 @@ class gen_net(object):
           return None
         conn_in.append(l.connector)
 
-    return layer.build_layer(conn_in)
+    return layer.build_layer(conn_in, self.is_sequence)
 
 
   #   Собрать сеть из генома
@@ -1095,7 +1104,18 @@ class gen_net(object):
       self.model = Model(model_in, self.__final_layer__.connector)
     except:
       prn('Err: ошибка сборки модели')
+    self.get_shape_out() # Проверка выходного слоя
     return self.model
+
+
+  def get_shape_out(self):
+    if self.__final_layer__.connector != None:
+      #print(self.__final_layer__.shape_out)
+      #print(remove_batch_dim(self.__final_layer__.connector.shape))
+      assert remove_batch_dim(self.__final_layer__.connector.shape) == self.__final_layer__.shape_out,'Не совпадают формы модели с заявленой формой add_output()'
+    #assert remove_batch_dim(self.__final_layer__.data.shape) == self.__final_layer__.shape_out,'Не совпадают форма выхода и форма слоя заявленые в add_output()'
+    return self.__final_layer__.shape_out
+
 
   #   Сгенерировать случайную сеть
   def generate(self,max_layers,nodes_in):
@@ -1314,7 +1334,7 @@ class gen_net(object):
           self.layers.append(layer)
           if gen.layer_idx - layer_idx>1:
             prn('Warning: добавлен неактивный слой',layer_idx,gen.layer_idx)
-          layer_idx += 1
+          layer_idx += 1 
           
 
         '''
@@ -1323,8 +1343,11 @@ class gen_net(object):
         if len(self.layers) != gen.layer_idx+1:
           prn('Ошибка: Нарушение нумерации генома ',gen.layer_idx)
           prn(self.print_genom(full_genom))
-          return False
+          layer_idx += 1
+          continue
+          #return False
         layer_idx = gen.layer_idx
+
         
       if gen.var_name == "inbound_layers":
           edjes = gen.value
@@ -1334,10 +1357,7 @@ class gen_net(object):
               return False
             self.addConnection(conn_in,layer_idx)
       elif gen.var_name == "batch_input_shape":
-          s = list(gen.value)
-          s.pop(0)
-          layer.shape_out = tuple(s)
-          #prn('gsaa',layer.shape_out)
+          layer.shape_out = remove_batch_dim(gen.value)
           layer.genom.append( gen )
       else:
           # Перенос признаков
@@ -1617,10 +1637,6 @@ class gen_net(object):
 
   #   Прочитать модель из файла
   def load_model(self,model):
-    def remove_dim(t):
-      s = list(t)
-      s.pop(0)
-      return tuple(s)
       
     self.clearModel()
     self.model = model
@@ -1630,14 +1646,30 @@ class gen_net(object):
     for layer in model.layers:
       ltype = layer.__class__.__name__
       layer_name = layer.name
-      layer_in_name  = layer.get_input_at(0).name.split('/')[0]
+      #print('qf',type(layer.get_input_at(0)))
+      #layer_in_name  = layer.get_input_at(0).name.split('/')[0]
+      #print('main',layer_name)
       if 'module_wrapper' in layer_name:
         print('Не могу работать с module_wrapper !!!')
-        return None
-      
-      if '_input' in layer.get_input_at(0).name:
+        return False
+      modelC.get_layer('concatenate')._inbound_nodes[0].inbound_layers
+      if isinstance(layer._inbound_nodes[0].inbound_layers,list):
+        list_in = layer._inbound_nodes[0].inbound_layers
+        layer_in_name = ''
+      else:
+        list_in = [layer._inbound_nodes[0].inbound_layers]
+        layer_in_name = layer._inbound_nodes[0].inbound_layers.name
+      '''
+      if isinstance(layer.get_input_at(0),list):
+        list_in = layer.get_input_at(0)
+        layer_in_name = ''
+      else:
+        list_in = [layer.get_input_at(0)]
+        layer_in_name = layer.get_input_at(0).name
+      '''
+      if '_input' in layer_in_name:
         newlayer = gen_layer()
-        newlayer.shape_out = remove_dim(layer.input_shape)
+        newlayer.shape_out = remove_batch_dim(layer.input_shape)
         newlayer.build_layer([])
         #newlayer.addLayer( layer )
         #newlayer.connector = layer.get_output_at(0)
@@ -1646,27 +1678,31 @@ class gen_net(object):
         #print(newlayer.__sublayers__[0].name)
 
       #print( '>',layer_name )
-      if ltype in types_list or ltype == 'InputLayer':
+      if ltype in types_list or ltype == 'InputLayer' or ltype == 'Concatenate':
         newlayer = gen_layer()
         newlayer.addLayer( layer )
         newlayer.connector = layer.get_output_at(0)
         if len(layer.outbound_nodes) == 0: #Финальный слой
           self.__final_layer__ =  newlayer
-          newlayer.shape_out = remove_dim(layer.output_shape)
+          newlayer.shape_out = remove_batch_dim(layer.output_shape)
           newlayer.data = layer
         else:
           self.layers.append( newlayer )
 
         nodes[layer_name] = newlayer
 
-        for idx in range(len(layer.inbound_nodes)):
-          layer_cor_name  = layer.get_input_at(idx).name.split('/')[0]
-          #print('sg',layer_cor_name)
+        for idx in range(len(list_in)):
+          #print('qf',layer.get_input_at(idx))
+          layer_cor_name  = list_in[idx].name.split('/')[0]
+          if self.__get_idx__( layer_cor_name )==-1:
+            print(layer_name,': Не могу найти входящий слой',layer_cor_name)
+            return False
+
           if '_input' in layer_cor_name:  # Input в модели Sequential
             self.addConnection(0,len(self.layers)-1)
             #print(0,'to ! ',len(self.layers)-1)
           elif 'input' in layer_cor_name and 'input' in layer_name:  # Input в функциональной модели 
-            newlayer.shape_out = remove_dim(layer.input_shape)
+            newlayer.shape_out = remove_batch_dim(layer.input_shape)
           else:
             i = self.__get_idx__( layer_cor_name )
             if i != -1: 
@@ -1683,11 +1719,24 @@ class gen_net(object):
           i = self.__get_idx__( layer_cor_name )
           if i != -1: newlayer.addConnectionOut( i )
         '''
-      elif ltype == 'Dropout' or ltype == 'BatchNormalization':
-        #print('drop')
+      elif ltype == 'Dropout' or ltype == 'BatchNormalization' or ltype == 'Activation':
+        print('drop',layer_in_name)
+        layer_in_name  = layer_in_name.split('/')[0]
+        if self.__get_idx__( layer_in_name )==-1:
+            print(layer_name,': Не могу найти входящий слой',layer_in_name)
+            return False        
         nodes[layer_in_name].addLayer( layer )
         nodes[layer_in_name].connector = layer.get_output_at(0)
+        '''
+        i = self.__get_idx__( layer_in_name )
+        if i != -1: 
+          self.addConnection(i,len(self.layers)-1)
+        '''
+      else:
+        print('Нет обработчика для слоя ',ltype)
+        return False
     #print(nodes)
+    return True
 
   def __get_idx__(self,name):
     for idx in range(len(self.layers)):
@@ -1708,8 +1757,8 @@ class kerasin:
     self.popul = list() # Список популяции
     self.nPopul = nPopul
     self.nFamily = 0
-    self.shape_in = (1,) # форма входа(без батч-размерности)
-    self.shape_out = (1,)
+    self.shape_in = None # форма входа(без батч-размерности)
+    self.shape_out = None
     self.is_sequence = False  # Поданые данные являются последовательностью?
     self.output_layer = None
     # Ссылки на данные обучения валидации и тестирования
@@ -1754,9 +1803,15 @@ class kerasin:
     #self.nFamily += 1
     if name == '': name = model.name
     G=gen_net(name,-1)#self.nFamily)
-    G.load_model(model)
-    # Проверить соответствие  shape !!!!
-    self.popul.append( G )
+    G.add_output(self.shape_out,)
+    if G.load_model(model):
+      #assert self.shape_in == G.get_shape_in(), 'Форма входа загружаемой модели не совпадает с профилем'
+      assert self.shape_out == G.get_shape_out(), 'Форма выхода загружаемой модели не совпадает с профилем'
+      # Проверить соответствие  shape !!!!
+      self.popul.append( G )
+      return True
+    return False
+    
 
   # Добавить описание входа моделей
   # shape - форма входа(Без batch размерности) для mnist это может быть (28,28) или (784,)
@@ -1871,6 +1926,7 @@ class kerasin:
   # Задаем имя профиля когда хотим чтобы в каталог с этим именем 
   # выгружались боты после генерации
   def set_profile(self,profile_name,path=''):
+    assert self.shape_in != None and self.shape_out != None, 'Сначала определите формы входа и выхода - add_input()/add_output() !'
     self.profile = path+profile_name+str(self.shape_in)+'-'+str(self.shape_out)
 
   # Задаем имя профиля когда хотим чтобы в каталог с этим именем 
@@ -2020,8 +2076,14 @@ class kerasin:
         model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
         start_time = time.time()
         if self.train_generator:
-          history = model.fit_generator( self.train_generator, steps_per_epoch = self.train_generator.samples // self.batch_size,
-            validation_data = self.validation_generator, validation_steps = self.validation_generator.samples // self.batch_size, 
+          try:
+            train_steps = self.train_generator.samples // self.batch_size
+            val_steps = self.validation_generator.samples // self.batch_size
+          except:
+            train_steps = None
+            val_steps = None
+          history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps,
+            validation_data = self.validation_generator, validation_steps = val_steps, 
             epochs=self.fit_epochs, verbose=self.verbose)
         else:
           history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),verbose=self.verbose)
@@ -2030,7 +2092,7 @@ class kerasin:
         if self.maxi_goal:
           bot.score = max(bot.hist['val_accuracy'])
         else:
-          bot.score = min(bot.hist['val_accuracy'])
+          bot.score = min(bot.hist['val_loss'])
         if self.x_test!=None and self.y_test!=None:
           bot.score = model.evaluate(self.x_test,self.y_test,verbose=0)
         if self.profile != None: bot.save(self.profile+'/')
@@ -2044,8 +2106,8 @@ class kerasin:
 
     # Отбираем победителей
     self.popul.sort( key=lambda bot: bot.score, reverse=self.maxi_goal)   # сортируем по оценке
-    if progress == 1: return True
     self.report()
+    if progress == 1: return True
     # Оставляем лучших
     for idx in range(get_qty_of_popul(0)):
       new_popul.append(self.popul[idx])
