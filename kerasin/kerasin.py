@@ -5,6 +5,8 @@
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
 
+#Библиотека
+
 #import networkx as nx
 #from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -26,6 +28,8 @@ trace = False
 
 def prn(*arg):
   if trace: print(arg)
+
+## Орграф
 
 
 #///////////////////////////////////////////////////////////////////////////////
@@ -199,6 +203,8 @@ class neuro_graph:
     self.edjes = new_edjes
     return False
 
+
+## Класс гена нейросети
 
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
@@ -381,6 +387,7 @@ class gen(object):
     return clone
 
 
+## Класс слоя нейросети
 
 def remove_batch_dim(shape):
   s = list(shape)
@@ -784,6 +791,10 @@ class gen_layer(object):
     return self.connector
 
 
+
+##Класс сети
+
+
 #///////////////////////////////////////////////////////////////////////////////
 # Класс генотипированной сети керас
 #///////////////////////////////////////////////////////////////////////////////
@@ -888,7 +899,7 @@ class gen_net(object):
 
   def load(self,name,path):
     full_genom=[]
-    if True:#try:
+    try:
       file = open(path+name+'.gn', 'r')
       #new = gen_net(self.name,self.get_family())
       lines = file.readlines()
@@ -932,9 +943,9 @@ class gen_net(object):
         print('не смог синтезировать загруженую модель',path+name+'.gn')
         return False
 
-    #except:
-    #  print('не смог загрузить',path+name+'.gn')
-    #  return False
+    except:
+      print('не смог загрузить',path+name+'.gn')
+      return False
     return True
 
   # Копирование экземпляра класса
@@ -1744,6 +1755,8 @@ class gen_net(object):
         return idx
     return -1
 
+
+## Kerasin
 
 #///////////////////////////////////////////////////////////////////////////////
 # Класс Генетического алгоритма для поиска оптимальной модели нееросети
