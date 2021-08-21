@@ -1663,7 +1663,6 @@ class gen_net(object):
       if 'module_wrapper' in layer_name:
         print('Не могу работать с module_wrapper !!!')
         return False
-      modelC.get_layer('concatenate')._inbound_nodes[0].inbound_layers
       if isinstance(layer._inbound_nodes[0].inbound_layers,list):
         list_in = layer._inbound_nodes[0].inbound_layers
         layer_in_name = ''
