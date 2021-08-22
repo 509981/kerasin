@@ -136,7 +136,7 @@ class neuro_graph:
         # Находим ребро в матрице смежности
         if MAJ[node_to][node_from]>0:
           if(( (node_from < n_in and node_to==nodes-1) # Если вход напрямую соединенс выходом
-            or random.random()>0.8)               # или вмешивается случай
+            or random.random()>0.3)               # или вмешивается случай
             and start_node+nodes<maxnodes):       #и количество вершин не превышает лимит
             # ребро разворачиваем в подсеть с 5 вершинами максимум.
             subnodes=min(5,maxnodes-start_node-nodes)
