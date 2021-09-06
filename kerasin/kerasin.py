@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.2 от 19 августа 2021 г.`
+#Версия 1.3 от 06/09/2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -9,6 +9,8 @@
 
 #import networkx as nx
 #from tqdm import tqdm
+from tqdm.keras import TqdmCallback
+
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -16,13 +18,15 @@ import time
 import os
 from copy import deepcopy
 
+import tensorflow.errors as tferrors
+import tensorflow.keras.callbacks as callbacks
 from tensorflow.keras.layers import Dense,Dropout,Input,concatenate,BatchNormalization,Conv2D,MaxPooling2D
-from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise
+from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise,Activation
 from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LSTM,LeakyReLU
 from tensorflow.keras.models import Model,clone_model
 from tensorflow.keras import utils
 import keras.backend as K
-
+from collections import defaultdict
 
 trace = False
 
@@ -38,6 +42,7 @@ def prn(*arg):
 
 class neuro_graph:
   def __init__(self):
+    self.nonexpansion_prob = .3 # Вероятность не расширения - определяет будем ли разворачивать сеть
     self.edjes = list()
     self.n_in = 1
   # Количество вершин графа
@@ -136,7 +141,7 @@ class neuro_graph:
         # Находим ребро в матрице смежности
         if MAJ[node_to][node_from]>0:
           if(( (node_from < n_in and node_to==nodes-1) # Если вход напрямую соединенс выходом
-            or random.random()>0.8)               # или вмешивается случай
+            or random.random()>self.nonexpansion_prob)               # или вмешивается случай
             and start_node+nodes<maxnodes):       #и количество вершин не превышает лимит
             # ребро разворачиваем в подсеть с 5 вершинами максимум.
             subnodes=min(5,maxnodes-start_node-nodes)
@@ -208,12 +213,16 @@ class neuro_graph:
 
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
-types_list = ['Dense', 'Dense', 'Conv2D', 'Conv2D','Conv1D','Conv1D',\
-                 'MaxPooling1D','MaxPooling2D','LSTM','GaussianNoise','Flatten']
+
+types_list = ['Dense', 'Conv2D', 'Conv1D','MaxPooling1D','MaxPooling2D','LSTM','GaussianNoise','Flatten']
+
+layers_type_prob = {'Dense':5,'Conv2D':5,'Conv1D':5,'MaxPooling1D':2,'MaxPooling2D':2,'LSTM':5,'GaussianNoise':1,'Flatten':0}
 
 #types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
-#ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization']                 
+ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization']
+#extlayers_type_prob = {'Flatten':.,'concatenate','Dropout','BatchNormalization']
 
+extralayers_type_prob = {'Dropout':.3,'BatchNormalization':.3,'LeakyReLU':.15}
 
 # типы активации
 type_activations = ['linear','relu', 'elu','tanh','softmax','sigmoid', 'selu']
@@ -239,13 +248,13 @@ class gen(object):
 
   # Получить строку представления гена
   def load_csv(self,str):
-    lst = str.split(';')
-    self.layer_idx = int(lst[0])
-    self.sublayer_idx = int(lst[1])
-    self.name = lst[2]
-    self.var_name = lst[3]
-    self.value = lst[4]
     try:
+      lst = str.split(';')
+      self.layer_idx = int(lst[0])
+      self.sublayer_idx = int(lst[1])
+      self.name = lst[2]
+      self.var_name = lst[3]
+      self.value = lst[4]
       if self.value == '':
         pass
       elif '[' == self.value[0]: # значение в виде списка
@@ -270,8 +279,9 @@ class gen(object):
         self.value = float(self.value)
       elif 'Wrapper' in self.value:
         return False
-    except:
+    except Exception as e:
       print('Не смог загрузить параметр ',str,lst,self.value)
+      print(e)
       return False
     self.changed = False
     return True
@@ -440,7 +450,11 @@ class gen_layer(object):
     return clone  
   '''
   # Получить геном списком
-  def get_genom(self,mutable_only=True,changed_only=False): 
+  # mutable_only - Включать только изменяемые гены
+  # changed_only - Выдать только отмеченые как измененные
+  # include_type - Включать имена слоев
+  # iclude_link - Включать входящие слои
+  def get_genom(self,mutable_only=True, changed_only=False, include_type=True, include_link=True): 
     if len(self.genom) == 0:# and (not changed_only):
       print('Генотип не заполнен. Вызовите sequence()',self.connector)
       return []
@@ -448,6 +462,8 @@ class gen_layer(object):
     lst = list()
     for l in self.genom:
       if not changed_only or l.changed:
+        if not include_type and l.var_name=='name': continue
+        if not include_link and l.var_name=='inbound_layers': continue
         if mutable_only:
           # Тестируем ген на изменчивость 
           cpy = l.copy()
@@ -550,17 +566,20 @@ class gen_layer(object):
     else:
       shape_dim = len(inbound_layers[0].shape)-1
       layer_in_name = inbound_layers[0]._keras_history.layer.__class__.__name__
-
       while True:
-        neurotype = random.sample(types_list,1)[0]
+        keys, weights = zip(*layers_type_prob.items())
+        probs = np.array(weights, dtype=float) / float(sum(weights))
+        neurotype = np.random.choice(keys, 1, p=probs)[0]
+        
+        #neurotype = random.sample(types_list,1)[0]
         #prn(neurotype,layer_in_name) 
-        if neurotype == 'Flatten'  and random.random()<.1 and shape_dim>1 and neurotype != layer_in_name: break; # and layer_in != 'Flatten':
+        if neurotype == 'Flatten' and shape_dim>1 and neurotype != layer_in_name: break; # and layer_in != 'Flatten':
         elif neurotype == 'MaxPooling2D' and shape_dim==3: break
         elif neurotype == 'Conv2D' and shape_dim==3: break
         elif neurotype == 'MaxPooling1D' and shape_dim==2: break
         elif neurotype == 'Conv1D' and shape_dim>1: break
         elif neurotype == 'LSTM' and shape_dim==2 and is_sequence: break
-        elif neurotype == 'GaussianNoise' and random.random()<.4 and neurotype != layer_in_name: break
+        elif neurotype == 'GaussianNoise' and neurotype != layer_in_name: break
         elif neurotype == 'Dense': break
     return neurotype
 
@@ -681,17 +700,18 @@ class gen_layer(object):
   # Добавляем вспомогательные слои
   def __create_extralayers__(self,x):
     layer_in_name = x._keras_history.layer.__class__.__name__     
-    if random.random()>.7:
+    
+    if random.random() < extralayers_type_prob['Dropout']:
       #prn('сборка слоя - Dropout')
       arg = self.__get_layer_params__('Dropout')
       cfg = self.__mutate__('Dropout',arg)
       x = self.__create_layer__('Dropout',[x],cfg)
-    if random.random()>.7:
+    if random.random() < extralayers_type_prob['BatchNormalization']:
       #prn('сборка слоя - BatchNormalization')
       arg = self.__get_layer_params__('BatchNormalization')
       cfg = self.__mutate__('BatchNormalization',arg)
       x = self.__create_layer__('BatchNormalization',[x],cfg)
-    if random.random()>.85: #1/8 layer_in_name == 'Dense' 
+    if random.random() < extralayers_type_prob['LeakyReLU']: #1/8 layer_in_name == 'Dense' 
       arg = self.__get_layer_params__('LeakyReLU')
       cfg = self.__mutate__('LeakyReLU',arg)
       x = self.__create_layer__('LeakyReLU',[x],cfg)
@@ -820,7 +840,7 @@ class gen_net(object):
     # Результат работы fit 
     self.hist = None
     # Оценка точности сети.Как правило loss. -1 если оценки не было
-    self.score = -1
+    self.__score__ = -1
     # family присваивается случайно сгенерированым сетям. сохраняется при мутации
     # при кросовере берет фамилию жены, ой, сети с самой лучшей оценкой.
     # служит для оценки родственности сетей
@@ -835,6 +855,44 @@ class gen_net(object):
 
   def get_family(self):
     return self.__family__
+
+  # Находим срезы по эпохе epochs-1 и вычисляем среднюю
+  # Если есть ряды с ранней остановкой или epochs==0 возвращаем экстремум
+  # Если ни одного такого среза нет - -1
+  def get_score(self,epochs=0):
+    def f1(row,e,S,n,pred,maxigoal):
+        if 0 < e <= len(row):
+          if S>0 and n==0: S=0
+          S += row[e-1]
+          n +=1
+        elif (e==0 or pred) and n==0:
+          if maxigoal:
+            S = max(max(row),S)
+          else:
+            S = min(min(row),S)
+        return S,n
+
+    if not self.hist: return -1
+    #print('asdfasf',epochs)
+    Score = 0
+    for key,trial in self.hist.items():
+      maxigoal = 'val_accuracy' in trial
+      if epochs==0 and not maxigoal and Score == 0: Score = 999999999
+      if maxigoal:
+          row = trial['val_accuracy']
+      else: 
+          row = trial['val_loss']
+      if epochs > len(row) and not '<' in key: continue
+      e = len(row)-1 if epochs==0 else epochs
+      if maxigoal:
+        Score = max(Score,max(row[0:e]))
+      else:
+        Score = min(Score,min(row[0:e]))
+      #print(key,Score,epochs,row,row[0:epochs],' - agfawee')
+    #print(Score,e,'agfawee')
+    if Score == 0 : return -1 
+    return Score
+    #return self.__score__
 
   def set_family(self,family):
     self.__family__ = family
@@ -872,7 +930,7 @@ class gen_net(object):
     file.write( gen(9999,0,'','output_shape',self.__final_layer__.shape_out).save_csv())
     file.write( gen(9999,0,'','description',self.description).save_csv())
     file.write( gen(9999,0,'','family',self.__family__).save_csv())
-    file.write( gen(9999,0,'','score',self.score).save_csv())
+    #file.write( gen(9999,0,'','score',self.get_score()).save_csv())
     file.write( gen(9999,0,'','train_duration',self.train_duration).save_csv())
 
     trainable_count = int(np.sum([K.count_params(p) for p in self.model.trainable_weights]))
@@ -884,33 +942,49 @@ class gen_net(object):
 
     hist = self.hist
     if hist != None:
-      for i in range(len(hist['loss'])):
-        #print(hist['loss'],i)
-        file.write( gen(9999,i,'','loss',hist['loss'][i]).save_csv())
-        if 'val_loss' in hist:
-          file.write( gen(9999,i,'','val_loss',hist['val_loss'][i]).save_csv())
-        if 'accuracy' in hist:
-          file.write( gen(9999,i,'','accuracy',hist['accuracy'][i]).save_csv())
-        if 'val_accuracy' in hist:
-          file.write( gen(9999,i,'','val_accuracy',hist['val_accuracy'][i]).save_csv())
+      for key,trial in hist.items():
+        #print('!'+key+'!',trial)
+        for i in range(len(trial['loss'])):
+          #print(trial['loss'],i,key,trial['loss'][i])
+          file.write( gen(9999,i,key,'loss',trial['loss'][i]).save_csv())
+          if  'val_loss' in trial and i<len(trial['val_loss']):
+            file.write( gen(9999,i,key,'val_loss',trial['val_loss'][i]).save_csv())
+          #print(i, trial,trial['accuracy'],len(trial['accuracy']),'dtjttd') 
+          if 'accuracy' in trial and i<len(trial['accuracy']):
+            file.write( gen(9999,i,key,'accuracy',trial['accuracy'][i]).save_csv())
+          if  'val_accuracy' in trial and i<len(trial['val_accuracy']):
+            file.write( gen(9999,i,key,'val_accuracy',trial['val_accuracy'][i]).save_csv())
 
+    '''
+        for i in range(len(hist['loss'])):
+          #print(hist['loss'],i)
+          file.write( gen(9999,i,'','loss',hist['loss'][i]).save_csv())
+          if 'val_loss' in hist:
+            file.write( gen(9999,i,'','val_loss',hist['val_loss'][i]).save_csv())
+          if 'accuracy' in hist:
+            file.write( gen(9999,i,'','accuracy',hist['accuracy'][i]).save_csv())
+          if 'val_accuracy' in hist:
+            file.write( gen(9999,i,'','val_accuracy',hist['val_accuracy'][i]).save_csv())
+
+    '''
     file.close()
 
-
-  def load(self,name,path):
+  # service_load - загрузка только заголовка и служебной информации(статистика, оценка, атрибуты) без модели
+  def load(self,name,path,service_load = False):
     full_genom=[]
-    try:
+    if True:#try:
       file = open(path+name+'.gn', 'r')
       #new = gen_net(self.name,self.get_family())
       lines = file.readlines()
       if len(lines) == 0: return False
 
-      from collections import defaultdict
-      hist = defaultdict(lambda: list())
+      hist = dict()
+      train = defaultdict(lambda: list())
+      curname = '*'
       for line in lines:
         g = gen()
         if not g.load_csv(line.strip()): continue
-        if g.layer_idx == 9999:
+        if g.layer_idx == 9999: #service part
           if g.var_name == 'output_shape':
             self.__final_layer__.shape_out = tuple(g.value)
           elif g.var_name == 'description':
@@ -922,19 +996,29 @@ class gen_net(object):
           elif g.var_name == 'train_duration':
             self.train_duration = int(g.value)
           elif g.var_name in 'val_loss val_accuracy':
-            hist[g.var_name].append(float(g.value))
+            if g.name != curname:
+              if curname != '*': 
+                hist[curname] = dict(train)
+                train.clear()
+              curname = g.name
+            train[g.var_name].append(float(g.value))
+
           elif g.var_name == 'non_trainable_count':
             pass
           elif g.var_name == 'trainable_count':
             pass
         else:
-          full_genom.append(g)
+          if not service_load:  full_genom.append(g)
       file.close()
       #print(self.print_genom(full_genom))
-      
+      #print(train)
+      if curname != '*':
+        hist[curname] = dict(train)
+        self.hist = hist
       #G = gen_net(name,15)
       self.name = name
-      self.hist = hist
+      if service_load: return True
+
       if not self.load_genom(full_genom):
         print('не смог инициализировать модель по загруженому геному',path+name+'.gn')
         return False
@@ -943,9 +1027,9 @@ class gen_net(object):
         print('не смог синтезировать загруженую модель',path+name+'.gn')
         return False
 
-    except:
-      print('не смог загрузить',path+name+'.gn')
-      return False
+    #except:
+    #  print('не смог загрузить',path+name+'.gn')
+    #  return False
     return True
 
   # Копирование экземпляра класса
@@ -1109,12 +1193,27 @@ class gen_net(object):
 
     #prn(self.__final_layer__.data.shape)
     try:
+      #if True:  
       self.__final_layer__.finish(out_con)
       self.__final_layer__.list_in.clear()
       self.__final_layer__.list_in.append(out_idx)
+      if self.model != None:
+        model = K.clear_session()
+      
       self.model = Model(model_in, self.__final_layer__.connector)
-    except:
-      prn('Err: ошибка сборки модели')
+      
+    except Exception as e:
+      prn('Err: ошибка сборки модели: '+str(e))
+      '''
+      try:
+        for l in self.model.layers:
+          l.name = "%s_workaround" % l.name
+        self.model = Model(model_in, self.__final_layer__.connector)
+      
+      except Exception as e:
+        prn('Err: повтор ошибки сборки модели: '+str(e))
+      '''
+      return None
     self.get_shape_out() # Проверка выходного слоя
     return self.model
 
@@ -1131,7 +1230,8 @@ class gen_net(object):
   #   Сгенерировать случайную сеть
   def generate(self,max_layers,nodes_in):
     self.nodes_in = nodes_in
-    G = neuro_graph()  
+    G = neuro_graph() 
+    G.nonexpansion_prob =  5/max_layers
     G.generate(max_layers,nodes_in)
     #self.clear()
     for edje in G.edjes:
@@ -1196,11 +1296,11 @@ class gen_net(object):
 
   # Получить геном списком
   # mutable_only - вывод только изменяемых параметров
-  def get_genom(self,mutable_only=True, changed_only=False):
+  def get_genom(self,mutable_only=True, changed_only=False,include_type=True,include_link=True):
     lst = []
     for idx in range(len(self.layers)):
       if not self.layers[idx].IsInactiveLayer():
-        lst.extend(self.layers[idx].get_genom(mutable_only,changed_only))
+        lst.extend(self.layers[idx].get_genom(mutable_only,changed_only,include_type,include_link))
     if not mutable_only:
       lst.extend(self.__final_layer__.get_genom(False,changed_only))
     return lst
@@ -1219,14 +1319,14 @@ class gen_net(object):
   # Провести мутацию генома
   # proc - процент
   # power - сила мутаций: множитель на вероятностнось смены типа слоя(0.5) и смены связи(0.2)
-  def mutate(self,proc,power=1):
+  def mutate(self,proc,change_type=True, change_link=True):
 #    if len(self.genom) == 0 and (not changed_only):
 #      prn('Генотип не заполнен. Вызовите sequence()') 
     self.sequence()
     backup = deepcopy(self.get_genom(False))
     while True:
       try:
-        lst = self.get_genom(True)
+        lst = self.get_genom(True,False,change_type,change_link)
         rebuild_nodes = set()
         relink_nodes = set()
         #prn(len(lst))
@@ -1239,9 +1339,9 @@ class gen_net(object):
           ret = g.mutate()
           prn('Мутация: Попытка изменения параметра слоя',g.get())
           #layer = self.layers[gen.layer_idx]
-          if ret == 2 and random.random()<power*0.5: # Изменение типа слоя
+          if ret == 2:# and random.random()<power*0.5: # Изменение типа слоя
             rebuild_nodes.add(g.layer_idx)
-          elif ret == 3 and random.random()<power*0.2: # Изменение связи
+          elif ret == 3:# and random.random()<power*0.2: # Изменение связи
             relink_nodes.add(g.layer_idx)
             pass
         lst_to_report = lst_to_mutate.copy()
@@ -1339,8 +1439,8 @@ class gen_net(object):
     layer_idx = -1
     for gen in full_genom:
       if gen.layer_idx != layer_idx:
-        '''
         while gen.layer_idx != layer_idx:
+          #while len(self.layers) != gen.layer_idx+1: 
           layer = gen_layer()
           self.layers.append(layer)
           if gen.layer_idx - layer_idx>1:
@@ -1358,7 +1458,7 @@ class gen_net(object):
           continue
           #return False
         layer_idx = gen.layer_idx
-
+        '''
         
       if gen.var_name == "inbound_layers":
           edjes = gen.value
@@ -1370,8 +1470,12 @@ class gen_net(object):
       elif gen.var_name == "batch_input_shape":
           layer.shape_out = remove_batch_dim(gen.value)
           layer.genom.append( gen )
+      elif gen.var_name == "name":
+          if len(gen.value)<15:
+            gen.value = gen.value+str(random.randint(1,999))
+          layer.genom.append( gen )
       else:
-          # Перенос признаков
+          # Перенос признаков 
           layer.genom.append( gen )
       if gen.name == 'InputLayer':
         self.nodes_in += 1
@@ -1654,6 +1758,7 @@ class gen_net(object):
     if len(self.description)==0:
       self.description = 'Загружено из keras модели '+ model.name
     nodes = dict()
+    last_main_layer = None
     for layer in model.layers:
       ltype = layer.__class__.__name__
       layer_name = layer.name
@@ -1663,7 +1768,6 @@ class gen_net(object):
       if 'module_wrapper' in layer_name:
         print('Не могу работать с module_wrapper !!!')
         return False
-      modelC.get_layer('concatenate')._inbound_nodes[0].inbound_layers
       if isinstance(layer._inbound_nodes[0].inbound_layers,list):
         list_in = layer._inbound_nodes[0].inbound_layers
         layer_in_name = ''
@@ -1701,6 +1805,7 @@ class gen_net(object):
           self.layers.append( newlayer )
 
         nodes[layer_name] = newlayer
+        last_main_layer = newlayer
 
         for idx in range(len(list_in)):
           #print('qf',layer.get_input_at(idx))
@@ -1731,13 +1836,23 @@ class gen_net(object):
           if i != -1: newlayer.addConnectionOut( i )
         '''
       elif ltype == 'Dropout' or ltype == 'BatchNormalization' or ltype == 'Activation':
-        print('drop',layer_in_name)
+        if last_main_layer:
+          last_main_layer.addLayer( layer )
+          last_main_layer.connector = layer.get_output_at(0)
+        else:
+          print(layer_name,': Главный слой не определен ',last_main_layer)
+          return False
+
+        '''
+        #print('drop',layer_in_name)
         layer_in_name  = layer_in_name.split('/')[0]
         if self.__get_idx__( layer_in_name )==-1:
             print(layer_name,': Не могу найти входящий слой',layer_in_name)
-            return False        
+            return False
+        
         nodes[layer_in_name].addLayer( layer )
         nodes[layer_in_name].connector = layer.get_output_at(0)
+        '''
         '''
         i = self.__get_idx__( layer_in_name )
         if i != -1: 
@@ -1761,6 +1876,75 @@ class gen_net(object):
 #///////////////////////////////////////////////////////////////////////////////
 # Класс Генетического алгоритма для поиска оптимальной модели нееросети
 #///////////////////////////////////////////////////////////////////////////////
+min_loss_level = 999999999.
+
+#class TqdmCallback(keras.callbacks.Callback)
+
+class EarlyStoppingAtMinLoss(callbacks.Callback):
+
+    def __init__(self, stop_dec=.005):
+      super(EarlyStoppingAtMinLoss, self).__init__()
+      self.stop_dec = stop_dec
+      self.k_achievements = 5.5
+      self.metric_list = []
+      #self.metric_list1 = []
+      self.stopped_epoch = 0
+
+
+    def on_train_begin(self, logs=None): pass
+
+    def on_epoch_end(self, epoch, logs=None):
+        global min_loss_level
+
+        #if logs.get("accuracy") == None:
+        metric = logs.get("val_loss")
+        #else:
+        #  metric = 1-logs.get("accuracy")
+        #  if metric == 0: metric = .00001
+        #  self.k_achievements = .2
+
+        self.metric_list.append(metric)
+        #self.metric_list1.append(logs.get("val_accuracy"))
+        #print(self.metric_list,logs)
+
+        if epoch>1 and self.stop_dec != 0:
+            a = [(self.metric_list[i-1]-self.metric_list[i])/self.metric_list[i] for i in range(epoch,epoch-2,-1)]
+            #print(a)
+            # Остановка обучения по причине снижения темпа обучения или разворота
+            if a[-1]<self.stop_dec and a[-2]<self.stop_dec:
+              #print('Снижение темпа обучения или разворот',epoch,self.stop_dec,a)
+              self.stopped_epoch = epoch
+              self.model.stop_training = True
+        '''
+        elif epoch==1:
+          min_loss_level = min(min_loss_level,metric)
+          # Отбраковка модели по причине высокого старта
+          if self.metric_list[1] > min_loss_level*(1+k_achievements): 
+             print('Высокий старт ',epoch,self.metric_list)
+             print(min_loss_level,'*',k_achievements,min_loss_level*k_achievements)
+             self.stopped_epoch = epoch
+             #self.model.stop_training = True
+        '''
+    def on_train_end(self, logs=None):
+          if self.stopped_epoch > 0:
+            #a = [(self.metric_list[i-1]-self.metric_list[i])/self.metric_list[i] for i in range(1,len(self.metric_list))]
+            print('Эпоха %05d: Снижение темпа обучения или разворот' % (self.stopped_epoch + 1))
+            #print("Epoch %05d: early stopping" % (self.stopped_epoch + 1),min_loss_level)#,a)
+            '''
+            print(self.metric_list)
+            plt.plot(self.metric_list,label='VAL_LOSS',linestyle ='--',color='red')
+            #plt.plot(self.metric_list1,label='VAL_ACC',color='red',linewidth=2)
+            plt.legend()
+            plt.show()
+
+
+            #plt.plot(self.metric_list,label='LOSS',linestyle ='--',color='red')
+            #plt.plot(self.metric_list,label='VAL_LOSS',color='red',linewidth=2)
+            plt.plot(a,label='A',linestyle ='--',color='green')
+            #plt.plot(vl,label='VAL_LOSS '+k,color='red',linewidth=2)
+            plt.legend()
+            plt.show()
+            '''
 
 class kerasin:  
   # complexity - сложность сети 1 - на 5 слоев, 2-на 10 и т.п. Количество слоев при генерации ботов точно не соблюдается. max_layer = x5 complexity
@@ -1781,21 +1965,45 @@ class kerasin:
     self.y_val=None
     self.x_test=None
     self.y_test=None
+    self.fit_epochs = 0
     self.maxi_goal = maxi_goal   # Это задача максимизации?
     self.max_layers = 5*complexity  # Примерное количество генерируемых слоев
     self.pSurv = .5 #Процент победителей в общей популяции
     self.train_generator = None #Ссылка на генератор для fit_generator
     self.profile = None # Имя профиля для записи ботов
     # Управление Генетическим алгоритмом
-    # 1. Распределение популяции 'popul_distribution' кортеж: (доля оставляемых чемпионов, доля ботов полученых кросовером,
-    #                                доля ботов полученых мутацией, доля случайных ботов). По умолчанию (5,25,25,45)
-    # Все доли будут нормированы и приведены к 100%
-    self.ga_control = {'popul_distribution': (5,25,25,45)}
-
+    # 1. Распределение популяции 'popul_distribution' кортеж: (число оставляемых чемпионов, число ботов полученых кросовером,
+    #                                число ботов полученых мутацией, число случайных ботов). По умолчанию (5,25,25,45)
+    #    Разброс чисел не важен, они будут нормированы и приведены к 100%
+    # 2. 'mutation_prob' - доля мутации мутанта от исходного генотипа. Например: ga_control['mutation_prob']=.2 (20%)
+    #    Если 0 то доля от 0.5 в первой эпохе автоматически уменьшается при приближении к последней эпохе
+    # 3. soft_fit если True мутации меняют только параметры слоев но не сами слои и их связи
+    self.ga_control = {
+        'popul_distribution': (5,25,25,45),
+        'mutation_prob': .2,
+        'early_stopping_at_minloss': .005,
+        'soft_fit':False}
   # Генератор имени бота
   def __botname__(self,epoch,num,family):
     return "bot_"+str(epoch).zfill(2)+'.'+str(num).zfill(3)+'('+str(family).zfill(3)+')'
-  
+
+  # Установка вероятности выпадения основных слоев
+  # Подаем словарь с поддерживаемым составом основных слоев керас из списка и вероятность их выпадения при генерации сети
+  def set_layers_type_prob(self,new_layers_type_prob):
+    global layers_type_prob
+    keys, weights = zip(*layers_type_prob.items())
+    for key in keys:
+      assert key in types_list, 'Неподдерживаемый тип слоя'+ key
+    layers_type_prob = new_layers_type_prob
+
+  # Установка вероятности выпадения вспомогательных слоев
+  # Устанавливаем вероятность prob выпадения layer при генерации сети
+  def set_extralayers_type_prob(self,layer,prob):
+    assert prob >= 0 and prob<1
+    global extralayers_type_prob
+    extralayers_type_prob[layer] = prob
+
+
   # Сенерировать nPopul случайных ботов
   def generate(self,nPopul=1,epoch=0):
     for idx in range(nPopul):
@@ -1816,7 +2024,7 @@ class kerasin:
     #self.nFamily += 1
     if name == '': name = model.name
     G=gen_net(name,-1)#self.nFamily)
-    G.add_output(self.shape_out,)
+    G.addOutput(self.shape_out,self.output_layer)
     if G.load_model(model):
       #assert self.shape_in == G.get_shape_in(), 'Форма входа загружаемой модели не совпадает с профилем'
       assert self.shape_out == G.get_shape_out(), 'Форма выхода загружаемой модели не совпадает с профилем'
@@ -1878,6 +2086,7 @@ class kerasin:
             y_val=None,
             rescore = False
         ):  
+    global min_loss_level
     self.x_train=x
     self.y_train=y
     self.x_val=x_val
@@ -1893,6 +2102,7 @@ class kerasin:
     #  print('Нет данных для обучения')
     #  return False
     #self.val_data = None
+    min_loss_level = 999999999
     if self.profile == None: start_epoch = 0
     else: start_epoch = self.__get_epochs_in_profile__()
     
@@ -1914,6 +2124,7 @@ class kerasin:
             validation_gen = None,
             rescore = False
         ):  
+    global min_loss_level
     if train_gen == None:
       print('определите генератор')
       return False
@@ -1922,11 +2133,10 @@ class kerasin:
     self.fit_epochs=epochs
     self.batch_size=batch_size
     self.verbose=verbose
-
     if self.output_layer == None:
       print('Error: Нет данных о финальном слое. Используйте addOutput()')
       return False
-    
+    min_loss_level = 999999999.
     if self.profile == None: start_epoch = 0
     else: start_epoch = self.__get_epochs_in_profile__()
     
@@ -1952,17 +2162,30 @@ class kerasin:
       print('Профиль не задан')
       return None
     if not ')-(' in profile_name: profile_name += str(self.shape_in)+'-'+str(self.shape_out)
-    g = gen()
+    tmp_bot = gen_net('tmp',0)
     bot_scored_list = []
     bot_unscored_list = []
     for root, dirs, files in os.walk(self.profile+'/'):
       for filename in files:
         if not '.gn' in filename: continue
         #print(filename)
+        tmp_bot.load(filename.replace('.gn',''),self.profile+'/', True)
+        score = tmp_bot.get_score(self.fit_epochs)
+        lst = [filename.replace('.gn',''),
+               self.profile+'/'+filename,
+               score,
+               tmp_bot.get_family(),
+               tmp_bot.description,None,None,None]
+        if score > -1:
+          bot_scored_list.append(tuple(lst))
+        elif include_unscored:
+          bot_unscored_list.append(tuple(lst))
+        
+        '''
         file = open(self.profile+'/'+filename, 'r')
         lines = file.readlines()
         
-        lst = [filename.replace('.gn',''),self.profile+'/'+filename,0,0,'',None,None,None]
+        
         for line in lines:
           if not g.load_csv(line.strip()): continue
           if g.layer_idx == 9999:
@@ -1977,6 +2200,7 @@ class kerasin:
         elif include_unscored:
           bot_unscored_list.append(tuple(lst))
         file.close()
+        '''
     bot_scored_list.sort( key=lambda x:x[2], reverse=self.maxi_goal)   # сортируем по оценке
     if nSurv>0:
       while len(bot_scored_list) >= nSurv: bot_scored_list.pop()
@@ -2061,11 +2285,14 @@ class kerasin:
     #print(self.show_profile(self.profile+'/'))
     if first_pass and self.profile != None:
       # Из фонда получаем nSurv лучших ботов плюс всех не прошедших оценку
-      for bot_name,bot_file,bot_score,_,_,_,_,_ in self.show_profile(self.profile+'/',nSurv,True):
+      #nLoad = 0 if rescore else nSurv
+      nLoad = nSurv
+      for bot_name,bot_file,bot_score,_,_,_,_,_ in self.show_profile(self.profile+'/',nLoad,True):
         if self.load_bot(bot_name) != None:
           print('Загружен бот ',bot_name,'с оценкой',bot_score)
         else:
-          return True
+          print('Не смог загрузить бота',bot_name)
+          #return True
       print('Загружено ',len(self.popul),'ботов профиля',self.profile)
 
     # На этом этапе боты посева имеют фамилию -1. Исправим это
@@ -2084,33 +2311,13 @@ class kerasin:
     new_popul = []
     for idx in range(len(self.popul)):
       bot = self.popul[idx]
-      if bot.score == -1 or rescore:
-        model = bot.model
-        model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
+      if rescore or bot.get_score(self.fit_epochs) == -1:
         start_time = time.time()
-        if self.train_generator:
-          try:
-            train_steps = self.train_generator.samples // self.batch_size
-            val_steps = self.validation_generator.samples // self.batch_size
-          except:
-            train_steps = None
-            val_steps = None
-          history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps,
-            validation_data = self.validation_generator, validation_steps = val_steps, 
-            epochs=self.fit_epochs, verbose=self.verbose)
-        else:
-          history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),verbose=self.verbose)
-        bot.hist = history.history
+        self.score(bot)
         bot.train_duration = int(time.time()-start_time)
-        if self.maxi_goal:
-          bot.score = max(bot.hist['val_accuracy'])
-        else:
-          bot.score = min(bot.hist['val_loss'])
-        if self.x_test!=None and self.y_test!=None:
-          bot.score = model.evaluate(self.x_test,self.y_test,verbose=0)
         if self.profile != None: bot.save(self.profile+'/')
         #bot.sequence()
-      print(str(idx+1).zfill(2),bot.name,' Оценка =',round(bot.score,7),'за',bot.train_duration,'cек.',bot.description)
+      print(str(idx+1).zfill(2),bot.name,' Оценка =',round(bot.get_score(self.fit_epochs),7),'за',bot.train_duration,'cек.',bot.description)
       #bot.SetScore(scores,hist)
     
     
@@ -2118,7 +2325,7 @@ class kerasin:
         
 
     # Отбираем победителей
-    self.popul.sort( key=lambda bot: bot.score, reverse=self.maxi_goal)   # сортируем по оценке
+    self.popul.sort( key=lambda bot: bot.get_score(self.fit_epochs), reverse=self.maxi_goal)   # сортируем по оценке
     self.report()
     if progress == 1: return True
     # Оставляем лучших
@@ -2159,9 +2366,12 @@ class kerasin:
       if bot:
         bot.name = self.__botname__(epoch+1,len(new_popul)+1, bot.get_family())
         bot.description = "Мутант от "+self.popul[nBot].name+';'+ bot.description
-        bot.mutate(random.random()*.5)
+        power = self.ga_control['mutation_prob']
+        if power==0: power = (1-progress)*.5
+        soft_fit = self.ga_control['soft_fit']
+        bot.mutate(power,not soft_fit,not soft_fit)
         new_popul.append(bot)
-        print('Бот',bot.name,'мутировал из бота',nBot)
+        print('Бот',bot.name,'мутировал из бота',nBot,'на',power*100,'%',' в режиме soft fit.' if soft_fit else '')
       else:
         print('От бота',self.popul[nBot].name,'мутация не удалась')
     # Удаляем с аутсайдеров
@@ -2177,7 +2387,7 @@ class kerasin:
       print('--------------------------')
       for idx in range(nSurv):
         bot = self.popul[idx]
-        print(idx+1,':',bot.name,'-',round(bot.score,5),bot.description)
+        print(idx+1,':',bot.name,'-',round(bot.get_score(self.fit_epochs),5),bot.description)
       print('--------------------------')
     if best_detail:
       best = self.popul[0]
@@ -2188,17 +2398,24 @@ class kerasin:
       print('------------ Геном -----------')
       gn = best.sequence()
       print(best.print_genom(gn))
+      clr=['red','blue','green','black','orange','yelow',None,None,None,None,None,None]
       plt.title('Loss Plot')
-      plt.plot(best.hist['loss'],label='LOSS')
-      plt.plot(best.hist['val_loss'],label='VAL_LOSS')
+      cl=0
+      for key,trial in best.hist.items():
+        plt.plot(trial['loss'],label='LOSS '+key,linestyle ='--',color=clr[cl])
+        plt.plot(trial['val_loss'],label='VAL_LOSS '+key,color=clr[cl],linewidth=2)
+        cl += 1
       plt.xlabel('Эпохи')
       plt.ylabel('Значение')
       plt.legend()
       plt.show()
       if 'accuracy' in best.hist: 
         plt.title('Accuracy Plot')
-        plt.plot(best.hist['accuracy'],label='ACCURACY')
-        plt.plot(best.hist['val_accuracy'],label='VAL_ACCURACY')
+        cl=0
+        for key,trial in best.hist.items():
+          plt.plot(trial['accuracy'],label='ACCURACY '+key, linestyle ='--', color=clr[cl])
+          plt.plot(trial['val_accuracy'],label='VAL_ACCURACY'+key,color=clr[cl],linewidth=2)
+          cl += 1
         plt.xlabel('Эпохи')
         plt.ylabel('Значение')
         plt.legend()
@@ -2212,3 +2429,64 @@ class kerasin:
   # переобученность и зависимость от количества эпох
   def evaluate(self):
     pass
+
+  '''
+  def score(self,bot,num_folds>1):
+    model = bot.model 
+    model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
+    if self.train_generator:
+
+    if num_folds>0:
+      inputs = np.concatenate((input_train, input_test), axis=0)
+      targets = np.concatenate((target_train, target_test), axis=0)
+
+      # Define the K-fold Cross Validator
+      kfold = KFold(n_splits=num_folds, shuffle=True)
+
+      # K-fold Cross Validation model evaluation
+      fold_no = 1
+      for train, test in kfold.split(inputs, targets):
+
+  from sklearn.model_selection import KFold
+  '''
+
+
+  def score(self,bot):
+    model = bot.model 
+    model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
+    try:
+      if self.train_generator:
+        try:
+          train_steps = self.train_generator.samples // self.batch_size
+          val_steps = self.validation_generator.samples // self.batch_size
+        except:
+          train_steps = None
+          val_steps = None
+        history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
+                                      validation_steps = val_steps, epochs=self.fit_epochs, verbose=self.verbose,
+                                      callbacks=[EarlyStoppingAtMinLoss(self.ga_control['early_stopping_at_minloss']),TqdmCallback()])
+      else:
+        history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),
+                            verbose=self.verbose,callbacks=[EarlyStoppingAtMinLoss( self.ga_control['early_stopping_at_minloss']),TqdmCallback()])
+    except tferrors.ResourceExhaustedError as e:
+      print(bot.name,': Модель требует слишком много памяти: '+str(e))
+      return False
+
+    #print('sdf',str(time.time()),history.history,bot.hist)
+    if bot.hist == None: bot.hist = dict()
+    #print('dfgh',bot.hist,history.history)
+    histname = str(time.time())
+    if len(history.history['loss']) < self.fit_epochs: histname += '<'
+    bot.hist[histname] = history.history
+    #print('dfgh',bot.hist)
+    #print('sdf',str(time.time()),history.history,bot.hist)
+    '''
+    if self.maxi_goal:
+      bot.score = max(history.history['val_accuracy'])
+    else:
+      bot.score = min(history.history['val_loss'])
+    '''
+    
+    if self.x_test!=None and self.y_test!=None:
+      bot.score = model.evaluate(self.x_test,self.y_test,verbose=0)
+    return True
