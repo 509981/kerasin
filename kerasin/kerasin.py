@@ -1836,6 +1836,7 @@ class gen_net(object):
           if i != -1: newlayer.addConnectionOut( i )
         '''
       elif ltype == 'Dropout' or ltype == 'BatchNormalization' or ltype == 'Activation':
+
         if last_main_layer:
           last_main_layer.addLayer( layer )
           last_main_layer.connector = layer.get_output_at(0)
@@ -2426,7 +2427,7 @@ class kerasin:
     return self.popul[idx].model
 
   # Оценка качества текущей популяции на устойчивость к объему данных, 
-  # переобученность и зависимость от количества эпох
+  # переобученность и зависимость от количества эпох 
   def evaluate(self):
     pass
 
