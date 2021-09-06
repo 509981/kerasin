@@ -191,7 +191,7 @@ G.addOutput(shape = (10,),layer = Dense(10, activation="softmax"))
 
 # Описываем параметры обучения
 G.compile(loss="categorical_crossentropy",optimizer="adam",metrics=["accuracy"])
-ga_control['mutation_prob'] = .3
+G.ga_control['mutation_prob'] = .3
 
 # Запуск эволюции
 G.fit( ga_epochs = 10, x = x_train, y = y_train, batch_size=125, epochs=20, verbose=0, x_val=x_test, y_val = y_test)
