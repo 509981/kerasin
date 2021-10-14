@@ -877,7 +877,7 @@ class gen_net(object):
     Score = 0
     for key,trial in self.hist.items():
       maxigoal = 'val_accuracy' in trial
-      if epochs==0 and not maxigoal and Score == 0: Score = 999999999
+      if not maxigoal and Score == 0: Score = 999999999
       if maxigoal:
           row = trial['val_accuracy']
       else: 
