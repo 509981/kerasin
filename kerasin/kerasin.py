@@ -2318,7 +2318,7 @@ class kerasin:
         bot.train_duration = int(time.time()-start_time)
         if self.profile != None: bot.save(self.profile+'/')
         #bot.sequence()
-      print(str(idx+1).zfill(2),bot.name,' Оценка =',round(bot.get_score(self.fit_epochs)),'за',bot.train_duration,'cек.',bot.description)
+      print(str(idx+1).zfill(2),bot.name,' Оценка =',round(bot.get_score(self.fit_epochs),5),'за',bot.train_duration,'cек.',bot.description)
       #bot.SetScore(scores,hist)
     
     
