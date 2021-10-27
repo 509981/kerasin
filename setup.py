@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
    name='kerasin',
-   version='1.3',
+   version='1.4',
    description='Generation and optimization keras model by GA',
    author='Dmitry Utenkov',
    author_email='509981@gmail.com',
