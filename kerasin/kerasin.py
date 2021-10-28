@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.4 от 26/10/2021 г.`
+#Версия 1.5 от 28/10/2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -562,12 +562,17 @@ class gen_layer(object):
 
   # Подбираем слой под входящую конфигурацию
   def __suggest_layer__(self,inbound_layers,is_sequence=False):
+    # Условно определяемые типы слоев
     if len(inbound_layers) == 0:
       assert (False) #!!!!!!!!!!!!!!!!!
       return 'InputLayer'
+    elif 0 in self.list_in and len(self.list_in) == 1 and self.data and len(self.shape_out)==1:
+      assert(self.data>0)
+      return 'Embedding'
     elif len(inbound_layers) > 1:
       return 'concatenate'
     else:
+      # Случайно определяемые типы слоев
       shape_dim = len(inbound_layers[0].shape)-1
       layer_in_name = inbound_layers[0]._keras_history.layer.__class__.__name__
       while True:
@@ -594,6 +599,10 @@ class gen_layer(object):
       x = Dense(10)
     elif neurotype == 'concatenate':
       return dict()
+    elif neurotype == 'Embedding':
+      x = Embedding(1,1)
+    elif neurotype == 'SpatialDropout1D':
+      x = SpatialDropout1D(.1)
     elif neurotype == 'Flatten':
       x = Flatten()
     elif neurotype == 'MaxPooling2D':
@@ -629,12 +638,12 @@ class gen_layer(object):
         assert self.connector == None
         x = Input(self.shape_out)
         self.addLayer(x._keras_history.layer)
-        #self.genom.clear()
         return x
-    #assert x != None and cfg != None
-
-      #elif neurotype == 'Embedding':
-      #  x = Embedding(self.shape_out,2**random.randint(5,9))
+    #elif str.lower(neurotype) == 'Embedding':
+    #    assert(self.data>0 and len(self.shape_out)==1)
+    #    x = Embedding(self.data,2**random.randint(2,8),input_length=self.shape_out[0])(x)
+    #    self.addLayer(x._keras_history.layer)
+    #    return x
     elif str.lower(neurotype) == 'concatenate':
       # Несколько входов - значит коннектор
       assert len(conn_in)>1
@@ -665,6 +674,11 @@ class gen_layer(object):
       x = conn_in[0]
       if neurotype == 'Dense':
         x = Dense.from_config(cfg)(x)
+      elif neurotype == 'Embedding':
+        assert(self.data>0 and len(self.shape_out)==1)
+        cfg['input_length']=self.shape_out[0]
+        cfg['input_dim']=self.data
+        x = Embedding.from_config(cfg)(x)
       elif neurotype == 'Flatten':
         x = Flatten.from_config(cfg)(x)
       elif neurotype == 'MaxPooling2D':
@@ -681,6 +695,8 @@ class gen_layer(object):
         x = GaussianNoise.from_config(cfg)(x)
       elif neurotype == 'Dropout':
         x = Dropout.from_config(cfg)(x)
+      elif neurotype == 'SpatialDropout1D':
+        x = SpatialDropout1D.from_config(cfg)(x)
       elif neurotype == 'BatchNormalization':
         x = BatchNormalization.from_config(cfg)(x)
       elif neurotype == 'LeakyReLU':
@@ -1039,6 +1055,7 @@ class gen_net(object):
     if res:
       return self.layers[id_from].delConnectionOut(id_to)
     return False
+  
   #   Добавить проброс между слоями
   def addConnection(self,id_from,id_to):
     maxnode = max(id_from,id_to)
@@ -1049,6 +1066,7 @@ class gen_net(object):
 
     self.layers[id_to].addConnectionIn(id_from)
     self.layers[id_from].addConnectionOut(id_to)
+
   #   Очистить слои
   def clearModel(self):
     self.model = None
@@ -1065,12 +1083,20 @@ class gen_net(object):
   #
   #   Добавить стандартный вход 
   # is_sequence - Да, если на вход подается последовательность данных
+  # maxWordCount признак использования Embedding
   def addInput(self, shape, is_sequence=False,maxWordCount=0):    
     self.layers.append( gen_layer() )
     id = len(self.layers)-1
     assert id < self.nodes_in
     self.layers[id].shape_out = shape
     self.layers[id].neurotype = GInput
+    # Подготовка слоя Enbedding
+    if maxWordCount>0:
+      self.layers.append( gen_layer() )
+      id = len(self.layers)-1
+      self.layers[id].shape_out = shape
+      self.layers[id].data = maxWordCount
+
     self.is_sequence = (is_sequence or self.is_sequence)
 
   #   Определить параметы выходного слоя
@@ -1133,6 +1159,7 @@ class gen_net(object):
       layer = self.layers[idx]
       if layer.IsInactiveLayer(): continue
       connector = self.__build_layer__(idx)
+
       if connector == None:
           prn('Сборка слоя',idx,'завершена с ошибкой.Синтез неудачен.')
           return None
@@ -1149,10 +1176,9 @@ class gen_net(object):
       self.__final_layer__.list_in.clear()
       self.__final_layer__.list_in.append(out_idx)
       if self.model != None:
-        model = K.clear_session()
-      
+        model = K.clear_session()      
       self.model = Model(model_in, self.__final_layer__.connector)
-      
+         
     except Exception as e:
       prn('Err: ошибка сборки модели: '+str(e))
       return None
@@ -1949,7 +1975,7 @@ class kerasin:
     self.print('//   -EXTRALAYERS PROB='+str(extralayers_type_prob))
     self.print('// -----------------------------------------------------------')
     self.print('//   Fit Parameters:')
-    self.print('// fit epochs='+str(self.fit_epochs)+'; loss='+self.loss+'; optim='+self.optimizer+'; metrics='+self.metrics+'; batch='+str(self.batch_size))
+    self.print('// fit epochs='+str(self.fit_epochs)+'; loss='+str(self.loss)+'; optim='+str(self.optimizer)+'; metrics='+self.metrics+'; batch='+str(self.batch_size))
     self.print('//////////////////////////////////////////////////////////////')
 
   # Запуск Эволюции на nEpochs генетических эпох
