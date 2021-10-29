@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.5 от 28/10/2021 г.`
+#Версия 1.51 от 29/10/2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -262,7 +262,9 @@ class gen(object):
       elif '[' == self.value[0]: # значение в виде списка
         self.value = [int(x) for x in self.value.strip('[]').split(',')]
       elif '(' == self.value[0]: # значение в виде кортежа
-        self.value = tuple([None if x == 'None' else int(x) for x in self.value.strip('()').split(',') if x != ''])
+        #self.value = tuple([None if x == 'None' else int(x) for x in value.replace(' ','').strip('()').split(',') if x != ''])
+        self.value = tuple([None if x.strip(' ') == 'None' else int(x) for x in self.value.strip('()').split(',') if x != ''])
+        #print(self.value)
       elif 'L1L2' in self.value:
         self.value = 'l1_l2'
       elif 'L1' in self.value:
@@ -508,11 +510,46 @@ class gen_layer(object):
       layer = self.__sublayers__[idx]
       l_type = layer.__class__.__name__
       self.genom.extend( self.__cfg_to_genom__(layer.get_config(),l_type, idx_layer, idx ) )
-      if 'Concat' in l_type or l_type in types_list:
+      if l_type in ['Embedding','Concatenate'] or l_type in types_list:
         # Для главного слоя указываем входящие
         self.genom.append( gen( idx_layer, idx, l_type, 'inbound_layers', self.list_in) )
-
     return self.genom
+
+
+  # Вывести код слоя на языке питон в функциональной нотации keras
+  # idx_layer индекс слоя
+  # limit=0 - Вывод первыx limit параметров функции
+  # valname='x' - Имя переменной для подстановки в код
+  def print_code(self,idx_layer,limit=0,valname='x'):
+    #prn(len(self.sublayer)) 
+    if self.connector == None: 
+      print(idx_layer,' - нет слоя для сиквенции',self.list_in,self.list_out)
+      assert not self.IsInactiveLayer() # Не пустой слой причина?
+      return None    
+    code = ''
+    for idx in range(len(self.__sublayers__)):
+      layer = self.__sublayers__[idx]
+      l_type = layer.__class__.__name__
+      code += valname+' = '+l_type+'('
+      i = 0
+      for key, value in layer.get_config().items():
+        if key in ['trainable','name','dtype']: continue
+        delimiter = "'" if isinstance(value, str) else ''
+        code += key+'='+delimiter+str(value)+delimiter+', '
+        i += 1
+        if limit>0 and i>limit: break
+      #if 'Concat' in l_type or l_type in types_list:
+      #  # Для главного слоя указываем входящие
+      #  self.genom.append( gen( idx_layer, idx, l_type, 'inbound_layers', self.list_in) )
+      if l_type=='InputLayer':
+        code  += ')\n'
+      else:
+        code  += ')('+valname+')\n'
+      code = code.replace(', )',')')
+    return code
+
+
+
   # Добавить слой в список
   def addLayer(self,layer):
     self.__sublayers__.append(layer)
@@ -678,6 +715,7 @@ class gen_layer(object):
         assert(self.data>0 and len(self.shape_out)==1)
         cfg['input_length']=self.shape_out[0]
         cfg['input_dim']=self.data
+        #cfg['batch_input_shape']= (125,300,4)
         x = Embedding.from_config(cfg)(x)
       elif neurotype == 'Flatten':
         x = Flatten.from_config(cfg)(x)
@@ -756,7 +794,6 @@ class gen_layer(object):
   # Создаем слой случайно или из генотипа
   def build_layer(self,connectors_in,is_sequence=False):
     #if self.neurotype == GInput:
-    #print(self.list_in,self.shape_out,'sagsrgsgh')
     if len(self.list_in) == 0:
       if self.connector == None:       
           self.connector = self.__create_layer__('InputLayer')
@@ -764,7 +801,7 @@ class gen_layer(object):
     
     #changed_gens = self.getChangedGens()
     changed_gens = [g for g in self.genom if g.changed]
-    prn(changed_gens,self.genom)
+    #prn(changed_gens,self.genom)
     change_type = [g for g in changed_gens if g.var_name == 'name']
     #prn('=====================',change_type)
     self.connector = None
@@ -1090,12 +1127,14 @@ class gen_net(object):
     assert id < self.nodes_in
     self.layers[id].shape_out = shape
     self.layers[id].neurotype = GInput
+    self.layers[id].list_out = [1]
     # Подготовка слоя Enbedding
     if maxWordCount>0:
       self.layers.append( gen_layer() )
       id = len(self.layers)-1
       self.layers[id].shape_out = shape
       self.layers[id].data = maxWordCount
+      self.layers[id].list_in = [0]
 
     self.is_sequence = (is_sequence or self.is_sequence)
 
@@ -1219,6 +1258,21 @@ class gen_net(object):
         lst.extend(self.layers[idx].sequence(idx))
     lst.extend(self.__final_layer__.sequence(idx+1))
     return lst
+
+  # Вывести код слоя на языке питон в функциональной нотации keras
+  # parameter_limit=0 - Вывод первыx limit параметров функции
+  # valname='x' - Имя переменной для подстановки в код
+
+  def print_code(self,parameter_limit=0,valname='x'):
+    if self.model == None: 
+      print('Нет модели для сиквенции!')
+      return []    
+    code="#Python code of model:"+self.name+'\n\n'
+    for idx in range(len(self.layers)):
+      if not self.layers[idx].IsInactiveLayer():
+        code += self.layers[idx].print_code(idx,parameter_limit,valname)
+    code += self.__final_layer__.print_code(idx+1,parameter_limit,valname)
+    return code
 
   # Очистить генотип
   def clear_genom(self):
@@ -1408,9 +1462,17 @@ class gen_net(object):
               print('Входящая вершина должна уже существовать. ее индекс ',conn_in,' больше индекса текущего слоя ',layer_idx)
               return False
             self.addConnection(conn_in,layer_idx)
-      elif gen.var_name == "batch_input_shape":
-          layer.shape_out = remove_batch_dim(gen.value)
+      elif gen.var_name == "batch_input_shape" and gen.layer_idx==0:
+          inp_shape = remove_batch_dim(gen.value)
+          layer.shape_out = inp_shape
+          #print(gen.layer_idx,layer.shape_out)
           layer.genom.append( gen )
+      elif gen.var_name == "input_dim" and gen.layer_idx==1:  # Embedding
+          layer.shape_out = inp_shape
+          layer.data = gen.value
+          #print(gen.layer_idx,layer.shape_out)
+          layer.genom.append( gen )
+
       elif gen.var_name == "name":
           if len(gen.value)<15:
             gen.value = gen.value+str(random.randint(1,999))
@@ -2328,6 +2390,13 @@ class kerasin:
   # Получить керас модель от idx бота популяции
   def get_model(self,idx=0):
     return self.popul[idx].model
+
+  # Вывести код слоя на языке питон в функциональной нотации keras
+  # parameter_limit=0 - Вывод первыx limit параметров функции
+  # valname='x' - Имя переменной для подстановки в код
+  def print_code(self,idx, parameter_limit=0,valname='x'):
+    if idx>=len(popul): return 'неправильный индекс idx в параметре. Такой бот не загружен в популяцию.'
+    return self.popul[idx].print_code(parameter_limit,valname)
 
   # Оценка качества текущей популяции на устойчивость к объему данных, 
   # переобученность и зависимость от количества эпох
