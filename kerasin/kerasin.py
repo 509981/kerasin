@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.51 от 29/10/2021 г.`
+#Версия 1.52 от 01/11/2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -221,7 +221,7 @@ types_list = ['Dense', 'Conv2D', 'Conv1D','MaxPooling1D','MaxPooling2D','LSTM','
 layers_type_prob = {'Dense':5,'Conv2D':5,'Conv1D':5,'MaxPooling1D':2,'MaxPooling2D':2,'LSTM':5,'GaussianNoise':1,'Flatten':0}
 
 #types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
-ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization']
+ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization','SpatialDropout1D']
 #extlayers_type_prob = {'Flatten':.,'concatenate','Dropout','BatchNormalization']
 
 extralayers_type_prob = {'Dropout':.3,'BatchNormalization':.3,'LeakyReLU':.15}
@@ -901,6 +901,7 @@ class gen_net(object):
     self.model = None
     # Признак учета последовательности во входных данных
     self.is_sequence = False
+    self.maxWordCount = 0
     # Результат работы fit 
     self.hist = None
     # Оценка точности сети.Как правило loss. -1 если оценки не было
@@ -1063,6 +1064,7 @@ class gen_net(object):
     clone = gen_net(self.name+' clone',self.get_family())
     clone.nodes_in = self.nodes_in
     clone.is_sequence = self.is_sequence
+    clone.maxWordCount = self.maxWordCount
     clone.__final_layer__.shape_out = self.__final_layer__.shape_out
     clone.__final_layer__.data = self.__final_layer__.data
     clone.load_genom(gn)
@@ -1122,6 +1124,7 @@ class gen_net(object):
   # is_sequence - Да, если на вход подается последовательность данных
   # maxWordCount признак использования Embedding
   def addInput(self, shape, is_sequence=False,maxWordCount=0):    
+    self.maxWordCount = maxWordCount
     self.layers.append( gen_layer() )
     id = len(self.layers)-1
     assert id < self.nodes_in
@@ -1668,11 +1671,13 @@ class gen_net(object):
       gt.clear()
       for idx in range(len(parent_genom)):
         parent = parent_genom[idx]
-        n = get_num_layers(parent)
-        width = random.randint(int(min_len*n),n-1)
+        # Если есть слой эмбеддинга будем считать точку кросовера от 2 слоя
+        Emb = 1 if self.maxWordCount>0 else 0
+        n = get_num_layers(parent)-Emb
+        width = random.randint(int(min_len*n),n-1-Emb)
         if idx==0: st = 0
-        elif idx+1 == len(parent_genom): st = n-width
-        else: st = random.randint(0,n-width)
+        elif idx+1 == len(parent_genom): st = n-width-Emb
+        else: st = random.randint(Emb,n-width-Emb)
         prn(idx,'. Выделяем родительский фрагмент:',st,st+width,' из ',n)
         addgt = self.__get_part_of_genom__(parent,st,st+width,False)
         if len(addgt)==0: break
@@ -1754,7 +1759,7 @@ class gen_net(object):
         newlayer.build_layer([])
         self.layers.append( newlayer )
         nodes[newlayer.__sublayers__[0].name] = newlayer
-      if ltype in types_list or ltype in ['InputLayer','Concatenate']:
+      if ltype in types_list or ltype in ['InputLayer','Concatenate','Embedding']:
         newlayer = gen_layer()
         newlayer.addLayer( layer )
         newlayer.connector = layer.get_output_at(0)
@@ -1785,7 +1790,7 @@ class gen_net(object):
                 self.__final_layer__.addConnectionIn( i )
               else:
                 self.addConnection(i,len(self.layers)-1)
-      elif ltype == 'Dropout' or ltype == 'BatchNormalization' or ltype == 'Activation':
+      elif ltype in ['Dropout','BatchNormalization','Activation','SpatialDropout1D']:
         if last_main_layer:
           last_main_layer.addLayer( layer )
           last_main_layer.connector = layer.get_output_at(0)
@@ -1965,7 +1970,9 @@ class kerasin:
       assert self.shape_out == G.get_shape_out(), 'Форма выхода загружаемой модели не совпадает с профилем'
       # Проверить соответствие  shape !!!!
       self.popul.append( G )
+      self.print('В популяцию добавлен '+name)
       return True
+    self.print('Не смог добавить в популяцию '+name)
     return False
     
   def print(self,string,savelog=True):
@@ -2076,9 +2083,8 @@ class kerasin:
     else: start_epoch = self.__get_epochs_in_profile__()
     if start_epoch >= ga_epochs:
       print('Достигнуто заданное количество эпох ',start_epoch,'из',ga_epochs)
-      return False
-
-    self.call_logfile(True)
+    else:
+      self.call_logfile(True)
     for epoch in range(start_epoch+1,ga_epochs+1): 
       self.print('================ '+str(epoch)+' EPOCH OF GA ================')
       if self.__epoch__(epoch,epoch/ga_epochs,rescore):
@@ -2087,6 +2093,8 @@ class kerasin:
           self.logfile = None
         return False
       self.call_logfile()
+    else:
+      self.__epoch__(start_epoch,1,rescore)
     self.report(True)
     if self.logfile:  
       self.logfile.close()
@@ -2123,8 +2131,8 @@ class kerasin:
     else: start_epoch = self.__get_epochs_in_profile__()
     if start_epoch >= ga_epochs:
       print('Достигнуто заданное количество эпох ',start_epoch,'из',ga_epochs)
-      return False
-    self.call_logfile(True)
+    else:
+      self.call_logfile(True)
     for epoch in range(start_epoch+1,ga_epochs+1): 
       self.print('#================'+str(epoch)+'EPOCH OF GA ================')
       if self.__epoch__(epoch,epoch/ga_epochs,rescore): 
@@ -2133,6 +2141,8 @@ class kerasin:
           self.logfile = None
         return False
       self.call_logfile(False)
+    else:
+      self.__epoch__(start_epoch,1,rescore)
     self.report(True)
     if self.logfile:  
       self.logfile.close()
