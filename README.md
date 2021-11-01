@@ -30,6 +30,38 @@ kerasin называет бота натурально по имени, фами
 
 где: EE - поколение(эпоха рождения); NNN - порядковый номер рождения в эпохе; FFF - фамилия. Например: bot_02.008(013) 
 
+=======
+###  Пример
+```
+!pip install git+https://github.com/509981/Kerasin.git
+
+import numpy as np
+from tensorflow.keras import utils
+from tensorflow.keras.layers import Dense
+import matplotlib.pyplot as plt
+
+import kerasin as ks
+
+# Создаем класс декомпозитора на 5 слоев
+G=ks.kerasin(complexity = 1, nPopul=100, maxi_goal=True)
+
+# Описываем параметры модели
+G.add_input(shape = (28,28,1))
+G.add_output(shape = (10,),layer = Dense(10, activation="softmax"))
+
+# Описываем параметры обучения
+G.compile(loss="categorical_crossentropy",optimizer="adam",metrics=["accuracy"])
+G.ga_control['mutation_prob'] = .3
+
+# Запуск эволюции
+G.fit( ga_epochs = 10, x = x_train, y = y_train, batch_size=125, epochs=20, verbose=0, x_val=x_test, y_val = y_test)
+
+# Выводим результат
+G.report(False,True)
+# Обученные боты расположены по убыванию val_accuracy. 
+utils.plot_model(G.get_model(0), dpi=60, show_shapes=True)
+```
+
 ---
 ### АТРИБУТЫ КЛАССА
 
@@ -109,6 +141,7 @@ kerasin называет бота натурально по имени, фами
   - *rescore* - принудительная перетренировка ранее тренированных моделей.
 
 Запуск эволюции. Назначение остальных параметров совпадает с их назначением в keras описанных [здесь](https://keras.io/api/models/model_training_apis/)
+Если заданное количество ga_epoch уже достигнуто ранее. Повторный вызов приведет только к загрузке популяции из профиля и к оценке неоцененных ботов.
 
 ---
 #### Запуск эволюции c генератором
@@ -117,6 +150,7 @@ kerasin называет бота натурально по имени, фами
   - *rescore* - принудительная тренировка моделей которые уже прошли оценку.
 
 Запуск эволюции на ga_epochs генетических эпох c генератором. Назначение остальных параметров совпадает с их назначением в keras. Все описано [здесь](https://keras.io/api/models/model_training_apis/)
+Если заданное количество ga_epoch уже достигнуто ранее. Повторный вызов приведет только к загрузке популяции из профиля и к оценке неоцененных ботов.
 
 ---
 #### Получить керас модель  
@@ -181,34 +215,3 @@ kerasin называет бота натурально по имени, фами
 Список соответствует списку поддерживаемых вспомогательных слоев. Указание других слоев - не допускается. Список будет расширяться. Для управление основными слоями см. **set_layers_type_prob()**
 
 ---
-=======
-###  Пример
-```
-!pip install git+https://github.com/509981/Kerasin.git
-
-import numpy as np
-from tensorflow.keras import utils
-from tensorflow.keras.layers import Dense
-import matplotlib.pyplot as plt
-
-import kerasin as ks
-
-# Создаем класс декомпозитора на 5 слоев
-G=ks.kerasin(complexity = 1, nPopul=100, maxi_goal=True)
-
-# Описываем параметры модели
-G.add_input(shape = (28,28,1))
-G.add_output(shape = (10,),layer = Dense(10, activation="softmax"))
-
-# Описываем параметры обучения
-G.compile(loss="categorical_crossentropy",optimizer="adam",metrics=["accuracy"])
-G.ga_control['mutation_prob'] = .3
-
-# Запуск эволюции
-G.fit( ga_epochs = 10, x = x_train, y = y_train, batch_size=125, epochs=20, verbose=0, x_val=x_test, y_val = y_test)
-
-# Выводим результат
-G.report(False,True)
-# Обученные боты расположены по убыванию val_accuracy. 
-utils.plot_model(G.get_model(0), dpi=60, show_shapes=True)
-```
