@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.52 от 01/11/2021 г.`
+#Версия 1.53 от 03/11/2021 г.`
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -21,7 +21,7 @@ import tensorflow.errors as tferrors
 import tensorflow.keras.callbacks as callbacks
 from tensorflow.keras.layers import Dense,Dropout,Input,concatenate,BatchNormalization,Conv2D,MaxPooling2D
 from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise,Activation
-from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LSTM,LeakyReLU
+from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LeakyReLU
 from tensorflow.keras.models import Model,clone_model
 from tensorflow.keras import utils
 import keras.backend as K
@@ -2021,7 +2021,7 @@ class kerasin:
 
   # Процедура открывает лог файл Если он открыт,- переоткрывает.
   def call_logfile(self,printState=False):
-    if len(self.profile)==0:
+    if not self.profile:
       return
     if self.logfile:
       self.logfile.close()
@@ -2258,6 +2258,10 @@ class kerasin:
       qty = self.ga_control['popul_distribution'][idx]/sum(self.ga_control['popul_distribution'])*self.nPopul
       if qty>0 and int(qty)==0: return 1
       return int(qty)
+    def sortscore(bot): 
+      score = bot.get_score(self.metrics,self.fit_epochs)
+      if score == -1 and not self.maxi_goal: score=999999
+      return score
 
     # Это первый проход?
     # В первом проходе в популяции могут быть только боты посева
@@ -2305,7 +2309,8 @@ class kerasin:
       #bot.SetScore(scores,hist)
     
     # Отбираем победителей
-    self.popul.sort( key=lambda bot: bot.get_score(self.metrics,self.fit_epochs), reverse=self.maxi_goal)   # сортируем по оценке
+    self.popul.sort( key = lambda bot: sortscore(bot), reverse=self.maxi_goal)   # сортируем по оценке
+    #self.popul.sort( key=lambda bot: bot.get_score(self.metrics,self.fit_epochs), reverse=self.maxi_goal)   # сортируем по оценке
     self.report()
     if progress == 1: return True
     # Оставляем лучших
