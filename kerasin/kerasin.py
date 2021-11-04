@@ -2451,7 +2451,7 @@ class kerasin:
         except:
           train_steps = None
           val_steps = None
-        history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
+          history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
                                       validation_steps = val_steps, epochs=self.fit_epochs, verbose=self.verbose,
                                       callbacks=[EarlyStoppingAtMinLoss(self.ga_control['early_stopping_at_minloss']),TqdmCallback()])
       else:
@@ -2460,7 +2460,9 @@ class kerasin:
     except tferrors.ResourceExhaustedError as e:
       self.print(bot.name+': Модель требует слишком много памяти: '+str(e))
       return 0
-
+    except:
+      self.print(bot.name+' - Ошибка при обучении')
+      return 0      
     if bot.hist == None: bot.hist = dict()
     histname = str(time.time())
     if len(history.history['loss']) < self.fit_epochs: histname += '<'
