@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.53 от 03/11/2021 г.`
+#Версия 1.9 от 7/11/2021 г.
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -1352,6 +1352,7 @@ class gen_net(object):
         lst_to_mutate = random.sample(lst,int(proc*len(lst)))
 
         for g in lst_to_mutate:
+          #self.print(g)
           ret = g.mutate()
           prn('Мутация: Попытка изменения параметра слоя',g.get())
           #layer = self.layers[gen.layer_idx]
@@ -1922,7 +1923,7 @@ class kerasin:
         'popul_distribution': (5,25,25,45),
         'mutation_prob': .0,
         'early_stopping_at_minloss': .005,
-        'soft_fit':False}
+        'soft_fit': 0}
   # Генератор имени бота
   def __botname__(self,epoch,num,family):
     return "bot_"+str(epoch).zfill(2)+'.'+str(num).zfill(3)+'('+str(family).zfill(3)+')'
@@ -2078,28 +2079,24 @@ class kerasin:
     #  print('Нет данных для обучения')
     #  return False
     #self.val_data = None
+    noError = True
     min_loss_level = 999999999
     if self.profile == None: start_epoch = 0
     else: start_epoch = self.__get_epochs_in_profile__()
     if start_epoch >= ga_epochs:
       print('Достигнуто заданное количество эпох ',start_epoch,'из',ga_epochs)
+      self.__epoch__(start_epoch,2,rescore)
     else:
       self.call_logfile(True)
     for epoch in range(start_epoch+1,ga_epochs+1): 
       self.print('================ '+str(epoch)+' EPOCH OF GA ================')
-      if self.__epoch__(epoch,epoch/ga_epochs,rescore):
-        if self.logfile:
-          self.logfile.close()
-          self.logfile = None
-        return False
-      self.call_logfile()
-    else:
-      self.__epoch__(start_epoch,1,rescore)
-    self.report(True)
+      if not self.__epoch__(epoch,epoch/ga_epochs,rescore): 
+        noError = False
+        break
     if self.logfile:  
       self.logfile.close()
       self.logfile = None
-    return True
+    return noError
 
   # Запуск Эволюции на nEpochs генетических эпох c генератором
   # Не путать!:  ga_epochs - количество эпох генетики, 
@@ -2125,29 +2122,24 @@ class kerasin:
     if self.output_layer == None:
       print('Error: Нет данных о финальном слое. Используйте add_output()')
       return False
-  
+    noError = True
     min_loss_level = 999999999.
     if self.profile == None: start_epoch = 0
     else: start_epoch = self.__get_epochs_in_profile__()
     if start_epoch >= ga_epochs:
       print('Достигнуто заданное количество эпох ',start_epoch,'из',ga_epochs)
+      self.__epoch__(start_epoch,2,rescore)
     else:
       self.call_logfile(True)
     for epoch in range(start_epoch+1,ga_epochs+1): 
       self.print('#================'+str(epoch)+'EPOCH OF GA ================')
-      if self.__epoch__(epoch,epoch/ga_epochs,rescore): 
-        if self.logfile:  
-          self.logfile.close()
-          self.logfile = None
-        return False
-      self.call_logfile(False)
-    else:
-      self.__epoch__(start_epoch,1,rescore)
-    self.report(True)
+      if not self.__epoch__(epoch,epoch/ga_epochs,rescore): 
+        noError = False
+        break
     if self.logfile:  
       self.logfile.close()
       self.logfile = None
-    return True
+    return noError
 
   # Задаем имя профиля когда хотим чтобы в каталог с этим именем 
   # выгружались боты после генерации
@@ -2243,6 +2235,7 @@ class kerasin:
     return self.popul[bot_idx].name
 
   # Процедура одной генетической эпохи
+  # progress=2 тогда только загрузка профиля
   def __epoch__(self,epoch,progress,rescore = False):
     def getBotInExpovariate(lmb,excluse_bots={}):
       # Исключаем близкородственные скрещивания
@@ -2263,17 +2256,19 @@ class kerasin:
       if score == -1 and not self.maxi_goal: score=999999
       return score
 
+    soft_fit = self.ga_control['soft_fit']
     # Это первый проход?
     # В первом проходе в популяции могут быть только боты посева
     first_pass = sum([1 for b in self.popul if b.get_family()!=-1])==0
-
     #nSurv = self.pSurv*    
-    #print(self.show_profile(self.profile+'/'))
+    #if first_pass and self.profile != None and nLoad > first_pass:
+    #print(first_pass,'qerhaelkj')
     if first_pass and self.profile != None:
+      #if self.profile != None and nLoad > first_pass:
       # Из фонда получаем nSurv лучших ботов плюс всех не прошедших оценку
       #nLoad = 0 if rescore else nSurv
-      #nLoad = nSurv
-      for bot_name,bot_file,bot_score,_,_,_,_,_ in self.show_profile(self.profile+'/',self.nPopul,True,True):
+      nLoad = soft_fit if soft_fit else self.nPopul
+      for bot_name,bot_file,bot_score,_,_,_,_,_ in self.show_profile(self.profile+'/',nLoad,True,True):
         if self.load_bot(bot_name) != None:
           self.print('Загружен бот '+bot_name+' с оценкой '+str(bot_score))
         else:
@@ -2287,14 +2282,74 @@ class kerasin:
         self.nFamily += 1
         bot.set_family(self.nFamily)
 
+    if progress == 2: return True
+    
+    if soft_fit and not len(self.popul):
+      self.print('Популяция не сформирована!')
+      return False
+    new_popul = []
+
+    # Оставляем лучших
+    nBest = soft_fit if soft_fit else get_qty_of_popul(0)
+    for idx in range(min(nBest,len(self.popul))):
+      new_popul.append(self.popul[idx])
+      self.print('Бот '+self.popul[idx].name+' остается с предыдущей популяции.')
+    #self.print('Оставляем '+str(len(new_popul))+' лучших ботов предыдущей популяции')
+
+    # Кроссовер 
+    if len(self.popul)>1 and soft_fit==0:
+      #print(first_pass,soft_fit)
+      for idx in range(get_qty_of_popul(1)):
+        res=None
+        while res==None:
+          # Выбираем родителей по экспотенциальному распределению. #(параметр - чуть выше вероятности выбора 0-ого элемента, остальные по нисходящей)
+          parents = []
+          desc = ''
+          #family_idx = 10000000
+          for i in range(2):#2-родителей   random.randint())
+            parent = getBotInExpovariate(.2,parents)
+            parents.append(parent)
+            self.popul[parent].sequence()
+            desc += self.popul[parent].name+','
+            #family_idx = min(parent,family_idx)
+          family = self.popul[min(parents)].get_family()
+          bot=gen_net( self.__botname__(epoch,len(new_popul)+1,family), family )
+          bot.addOutput(self.shape_out,self.output_layer) 
+          res = bot.crossover([self.popul[parent].get_genom(False) for parent in parents])
+          if not res: print('неудачный кросовер от',parents)
+          # Если кросовер не удачен с этими родителями, идем за следующими
+
+        new_popul.append(bot)
+        bot.description = "Потомок "+desc+';'+ bot.description
+        self.print('Бот '+str(bot.name)+': '+bot.description)
+    # Мутация
+    if len(self.popul):
+      nMutant = self.nPopul-len(new_popul) if soft_fit else get_qty_of_popul(2)
+    else:
+      nMutant = 0
+    for i in range(nMutant):
+      nBot = getBotInExpovariate(.2)
+      bot = self.popul[nBot].copy()
+      if bot:
+        bot.name = self.__botname__(epoch,len(new_popul)+1, bot.get_family())
+        bot.description = "Мутант от "+self.popul[nBot].name+';'+ bot.description
+        power = self.ga_control['mutation_prob']
+        if power==0: power = (1.05-progress)*.5
+        bot.mutate(power,soft_fit==0,soft_fit==0)
+        new_popul.append(bot)
+        self.print('Бот '+bot.name+' мутировал из бота '+str(nBot)+' на '+str(round(power*100,1))+'%'+(' в режиме soft fit.' if soft_fit else ''))
+      else:
+        print('От бота',self.popul[nBot].name,'мутация не удалась')
+    
+    self.popul = new_popul
+    
     # Пополнение популяции случайными представителями
     nRndBots = self.nPopul-len(self.popul)
     if nRndBots>0: 
       self.generate(nRndBots,epoch)
       self.print('Сгенерированы '+str(nRndBots)+' случайных ботов')
-    
+
     # Тестируем популяцию
-    new_popul = []
     for idx in range(len(self.popul)):
       bot = self.popul[idx]
       real_epochs = self.fit_epochs
@@ -2307,57 +2362,12 @@ class kerasin:
       if idx % 5: self.call_logfile()
       #self.logfile.flush() В колаб не работает
       #bot.SetScore(scores,hist)
-    
+      
     # Отбираем победителей
     self.popul.sort( key = lambda bot: sortscore(bot), reverse=self.maxi_goal)   # сортируем по оценке
     #self.popul.sort( key=lambda bot: bot.get_score(self.metrics,self.fit_epochs), reverse=self.maxi_goal)   # сортируем по оценке
     self.report()
-    if progress == 1: return True
-    # Оставляем лучших
-    for idx in range(get_qty_of_popul(0)):
-      new_popul.append(self.popul[idx])
-    self.print('Оставляем '+str(len(new_popul))+' лучших ботов предыдущей популяции')
-    # Кроссовер 
-    for idx in range(get_qty_of_popul(1)):
-      res=None
-      while res==None:
-        # Выбираем родителей по экспотенциальному распределению. #(параметр - чуть выше вероятности выбора 0-ого элемента, остальные по нисходящей)
-        parents = []
-        desc = ''
-        #family_idx = 10000000
-        for i in range(2):#2-родителей   random.randint())
-          parent = getBotInExpovariate(.2,parents)
-          parents.append(parent)
-          self.popul[parent].sequence()
-          desc += self.popul[parent].name+','
-          #family_idx = min(parent,family_idx)
-        family = self.popul[min(parents)].get_family()
-        bot=gen_net( self.__botname__(epoch+1,len(new_popul)+1,family), family )
-        bot.addOutput(self.shape_out,self.output_layer) 
-        res = bot.crossover([self.popul[parent].get_genom(False) for parent in parents])
-        if not res: print('неудачный кросовер от',parents)
-        # Если кросовер не удачен с этими родителями, идем за следующими
-
-      new_popul.append(bot)
-      bot.description = "Потомок "+desc+';'+ bot.description
-      self.print('Бот '+str(bot.name)+': '+bot.description)
-    # Мутации другой половины победителей
-    for i in range(get_qty_of_popul(2)):
-      nBot = getBotInExpovariate(.2)
-      bot = self.popul[nBot].copy()
-      if bot:
-        bot.name = self.__botname__(epoch+1,len(new_popul)+1, bot.get_family())
-        bot.description = "Мутант от "+self.popul[nBot].name+';'+ bot.description
-        power = self.ga_control['mutation_prob']
-        if power==0: power = (1-progress)*.5
-        soft_fit = self.ga_control['soft_fit']
-        bot.mutate(power,not soft_fit,not soft_fit)
-        new_popul.append(bot)
-        self.print('Бот '+bot.name+' мутировал из бота '+str(nBot)+' на '+str(round(power*100,1))+'%'+(' в режиме soft fit.' if soft_fit else ''))
-      else:
-        print('От бота',self.popul[nBot].name,'мутация не удалась')
-    self.popul = new_popul
-    return False
+    return True
     
   # Отчет по эпохе
   # best_detail - добавляем подробное описание чемпиона
@@ -2443,6 +2453,7 @@ class kerasin:
   def score(self,bot):
     model = bot.model 
     model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
+    early_stopping_at_minloss = 0 if self.ga_control['soft_fit'] else self.ga_control['early_stopping_at_minloss']
     try:
       if self.train_generator:
         try:
@@ -2453,10 +2464,10 @@ class kerasin:
           val_steps = None
           history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
                                       validation_steps = val_steps, epochs=self.fit_epochs, verbose=self.verbose,
-                                      callbacks=[EarlyStoppingAtMinLoss(self.ga_control['early_stopping_at_minloss']),TqdmCallback()])
+                                      callbacks=[EarlyStoppingAtMinLoss(early_stopping_at_minloss),TqdmCallback()])
       else:
         history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),
-                            verbose=self.verbose,callbacks=[EarlyStoppingAtMinLoss( self.ga_control['early_stopping_at_minloss']),TqdmCallback()])      
+                            verbose=self.verbose,callbacks=[EarlyStoppingAtMinLoss( early_stopping_at_minloss),TqdmCallback()])      
     except tferrors.ResourceExhaustedError as e:
       self.print(bot.name+': Модель требует слишком много памяти: '+str(e))
       return 0
