@@ -297,102 +297,105 @@ class gen(object):
 
 
   # Изменяем параметр генома случайным способом
+  # Параметр не должен остаться прежним!
   # arg - словарь аргументов для проверки на взамоисключающее сочетание параметров
   def mutate(self):
     self.changed = True
-    if self.var_name == 'name': return 2 # Изменение типа слоя
-    elif 'Concatenate' == self.name and self.var_name == 'inbound_layers': return 3 # Изменение связи
-    #elif 'concat' in self.name: return 3 # Изменение связи
-    if self.name == 'InputLayer': return 0 # Игнор
-    elif self.var_name == 'units': self.value=2**random.randint(2,10)
-    elif self.var_name == 'filters': 
-      self.value=2**random.randint(2,8)
-      # Conv1D:The number of filters must be evenly divisible by the number of groups. Received: groups=3, filters=16
-      '''
-      try:
-        gr = arg['groups']
-        while True:
-          flt=2**random.randint(2,8)
-          if flt % gr == 0: 
-            self.value = flt / gr
-            break       
-      except:
-        self.value = 1
-      #prn("f!!!",gr,flt,self.value)
-      '''  
-      #self.value=2**random.randint(2,8)
-    elif self.var_name == 'output_dim': self.value = 2**random.randint(1,8) # Размерность Embedding пространства
-    elif self.var_name == 'activation': self.value = type_activations[random.randint(0,len(type_activations)-1)]
-    elif self.var_name == 'use_bias': self.value = (random.random() > .3)
-    elif self.var_name == 'scale' and 'BatchNormalization' == self.name: self.value = (random.random() > .3)
-    elif self.var_name == 'center' and 'BatchNormalization' ==self.name: self.value = (random.random() > .3)
-    elif 'regularizer' in self.var_name: self.value = random.sample([None,None,None,None,'l1','l2','l1_l2'],1)[0] #tf.keras.regularizers.l2(0.01)
-    elif self.var_name == 'rate' and 'Dropout' in self.name: self.value=random.random()*.5
-    elif 'dropout' in str.lower(self.var_name): self.value=random.random()*.5 #LSTM
-    elif self.var_name == 'stddev': self.value=random.random()*.5 # Noise
-    elif self.var_name == 'go_backwards': self.value = (random.random() < .3) #LSTM
-    elif self.var_name == 'unit_forget_bias': self.value = (random.random() > .3) #LSTM
-    elif self.var_name == 'unroll': self.value = (random.random() < .3) #LSTM
-    elif self.var_name == 'stateful': self.value = (random.random() < .3) #LSTM
-    elif self.var_name == 'pool_size': self.value = random.randint(2,4) #MaxPooling
-    elif self.var_name == 'alpha': self.value = random.random() #LeakyReLU
-    elif self.var_name == 'kernel_size': 
-      winsize = random.randint(2,7)
-      if '1D' in self.name: self.value = (winsize,)
-      elif '2D' in self.name: self.value = (winsize,winsize)
-      elif '3D' in self.name: self.value = (winsize,winsize,winsize)
-    elif self.var_name == 'strides': 
-      val = random.randint(1,4)
-      if '1D' in self.name: self.value = (val,)
-      elif '2D' in self.name: self.value = (val,val)
-      elif '3D' in self.name: self.value = (val,val,val)
-    elif self.var_name == 'padding':
-      self.value=random.sample(['valid','same'],1)[0]
-    else:
-      # Список неизменяемых параметров
-      if self.var_name == 'dilation_rate': pass
-        #  В настоящее время указание любого dilation_rateзначения! = 1 несовместимо с указанием любого значения шага! = 1.'
-      elif self.var_name == 'groups': 
-        self.value = 1
+    old_value = self.value
+    while (self.value==old_value):
+      if self.var_name == 'name': return 2 # Изменение типа слоя
+      elif 'Concatenate' == self.name and self.var_name == 'inbound_layers': return 3 # Изменение связи
+      #elif 'concat' in self.name: return 3 # Изменение связи
+      if self.name == 'InputLayer': return 0 # Игнор
+      elif self.var_name == 'units': self.value=2**random.randint(2,10)
+      elif self.var_name == 'filters': 
+        self.value=2**random.randint(2,8)
         # Conv1D:The number of filters must be evenly divisible by the number of groups. Received: groups=3, filters=16
         '''
-        The number of input channels must be evenly divisible by the number of groups. Received groups=8.0, but the input has 28 channels (full input shape is (None, 28, 28))
         try:
-          flt = arg['filters']
+          gr = arg['groups']
           while True:
-            gr=random.randint(1,4)
+            flt=2**random.randint(2,8)
             if flt % gr == 0: 
               self.value = flt / gr
               break       
         except:
-            self.value = 1
-        prn("!!!",gr,flt,self.value)
-        '''
-      # Эти параметры обычно нет смысла менять
-      elif 'constraint' in self.var_name: pass
-      elif self.var_name == 'dtype': pass
-      elif self.var_name == 'return_sequences': pass
-      elif self.var_name == 'seed': pass
-      elif self.var_name == 'trainable': pass
-      elif self.var_name == 'data_format': pass
-      elif self.var_name == 'axis': self.value = -1
-      elif self.var_name == 'ragged': pass  # Input
-      elif self.var_name == 'sparse': pass  # Input
-      elif self.var_name == 'batch_input_shape': pass  # Input
-      # Разобраться позже
-      elif self.var_name == 'inbound_layers': pass # return 3 # Изменение связи не 'Concatenate' == self.name
-      elif self.var_name == 'momentum': pass  # BatchNorm
-      elif self.var_name == 'epsilon': pass  # BatchNorm
-      elif self.var_name == 'scale': pass  # BatchNorm
-      elif self.var_name == 'noise_shape': pass  # Dropout
-      elif self.var_name == 'implementation': pass  # lstm
-      elif self.var_name == 'time_major': pass  # lstm
-      elif self.var_name == 'return_state': pass  # lstm
-      elif self.var_name == 'recurrent_activation': pass  # lstm
+          self.value = 1
+        #prn("f!!!",gr,flt,self.value)
+        '''  
+        #self.value=2**random.randint(2,8)
+      elif self.var_name == 'output_dim': self.value = 2**random.randint(1,8) # Размерность Embedding пространства
+      elif self.var_name == 'activation': self.value = type_activations[random.randint(0,len(type_activations)-1)]
+      elif self.var_name == 'use_bias': self.value = (random.random() > .3)
+      elif self.var_name == 'scale' and 'BatchNormalization' == self.name: self.value = (random.random() > .3)
+      elif self.var_name == 'center' and 'BatchNormalization' ==self.name: self.value = (random.random() > .3)
+      elif 'regularizer' in self.var_name: self.value = random.sample([None,None,None,None,'l1','l2','l1_l2'],1)[0] #tf.keras.regularizers.l2(0.01)
+      elif self.var_name == 'rate' and 'Dropout' in self.name: self.value=random.random()*.5
+      elif 'dropout' in str.lower(self.var_name): self.value=random.random()*.5 #LSTM
+      elif self.var_name == 'stddev': self.value=random.random()*.5 # Noise
+      elif self.var_name == 'go_backwards': self.value = (random.random() < .3) #LSTM
+      elif self.var_name == 'unit_forget_bias': self.value = (random.random() > .3) #LSTM
+      elif self.var_name == 'unroll': self.value = (random.random() < .3) #LSTM
+      elif self.var_name == 'stateful': self.value = (random.random() < .3) #LSTM
+      elif self.var_name == 'pool_size': self.value = random.randint(2,4) #MaxPooling
+      elif self.var_name == 'alpha': self.value = random.random() #LeakyReLU
+      elif self.var_name == 'kernel_size': 
+        winsize = random.randint(2,7)
+        if '1D' in self.name: self.value = (winsize,)
+        elif '2D' in self.name: self.value = (winsize,winsize)
+        elif '3D' in self.name: self.value = (winsize,winsize,winsize)
+      elif self.var_name == 'strides': 
+        val = random.randint(1,4)
+        if '1D' in self.name: self.value = (val,)
+        elif '2D' in self.name: self.value = (val,val)
+        elif '3D' in self.name: self.value = (val,val,val)
+      elif self.var_name == 'padding':
+        self.value=random.sample(['valid','same'],1)[0]
       else:
-        prn('пропущено:',self.name,'-',self.get())
-      return 0
-
+        # Список неизменяемых параметров
+        if self.var_name == 'dilation_rate': pass
+          #  В настоящее время указание любого dilation_rateзначения! = 1 несовместимо с указанием любого значения шага! = 1.'
+        elif self.var_name == 'groups': 
+          self.value = 1
+          # Conv1D:The number of filters must be evenly divisible by the number of groups. Received: groups=3, filters=16
+          '''
+          The number of input channels must be evenly divisible by the number of groups. Received groups=8.0, but the input has 28 channels (full input shape is (None, 28, 28))
+          try:
+            flt = arg['filters']
+            while True:
+              gr=random.randint(1,4)
+              if flt % gr == 0: 
+                self.value = flt / gr
+                break       
+          except:
+              self.value = 1
+          prn("!!!",gr,flt,self.value)
+          '''
+        # Эти параметры обычно нет смысла менять
+        elif 'constraint' in self.var_name: pass
+        elif self.var_name == 'dtype': pass
+        elif self.var_name == 'return_sequences': pass
+        elif self.var_name == 'seed': pass
+        elif self.var_name == 'trainable': pass
+        elif self.var_name == 'data_format': pass
+        elif self.var_name == 'axis': self.value = -1
+        elif self.var_name == 'ragged': pass  # Input
+        elif self.var_name == 'sparse': pass  # Input
+        elif self.var_name == 'batch_input_shape': pass  # Input
+        # Разобраться позже
+        elif self.var_name == 'inbound_layers': pass # return 3 # Изменение связи не 'Concatenate' == self.name
+        elif self.var_name == 'momentum': pass  # BatchNorm
+        elif self.var_name == 'epsilon': pass  # BatchNorm
+        elif self.var_name == 'scale': pass  # BatchNorm
+        elif self.var_name == 'noise_shape': pass  # Dropout
+        elif self.var_name == 'implementation': pass  # lstm
+        elif self.var_name == 'time_major': pass  # lstm
+        elif self.var_name == 'return_state': pass  # lstm
+        elif self.var_name == 'recurrent_activation': pass  # lstm
+        else:
+          prn('пропущено:',self.name,'-',self.get())
+        return 0
+    # Изменяемый параметр - изменен
     return 1
   
   # Копирование гена
@@ -1335,33 +1338,40 @@ class gen_net(object):
     return strn
 
   # Провести мутацию генома
+  # Хоть одна мутация должна произойти!
   # proc - процент
-  # power - сила мутаций: множитель на вероятностнось смены типа слоя(0.5) и смены связи(0.2)
   def mutate(self,proc,change_type=True, change_link=True):
 #    if len(self.genom) == 0 and (not changed_only):
 #      prn('Генотип не заполнен. Вызовите sequence()') 
     self.sequence()
-    backup = deepcopy(self.get_genom(False))
+    sumMutation = 0
+    backup = deepcopy(self.get_genom(False))# Сохраним геном на случай отката
     while True:
-      try:
+      try:        
         lst = self.get_genom(True,False,change_type,change_link)
         rebuild_nodes = set()
         relink_nodes = set()
         assert len(lst)>0
         
-        lst_to_mutate = random.sample(lst,int(proc*len(lst)))
-
+        # Сгенерируем список генов для мутаций
+        lst_to_mutate = random.sample(lst,max(1,int(proc*len(lst))))
+        sumMutation=0
         for g in lst_to_mutate:
           #self.print(g)
           ret = g.mutate()
+          sumMutation += ret
           prn('Мутация: Попытка изменения параметра слоя',g.get())
           #layer = self.layers[gen.layer_idx]
           if ret == 2:# and random.random()<power*0.5: # Изменение типа слоя
+            assert(change_type)
             rebuild_nodes.add(g.layer_idx)
           elif ret == 3:# and random.random()<power*0.2: # Изменение связи
+            assert(change_link)
             relink_nodes.add(g.layer_idx)
-            pass
+        # Хоть одна мутация должна произойти
+        if sumMutation==0: continue
         lst_to_report = lst_to_mutate.copy()
+
         for node in rebuild_nodes:
           for i in range(3): 
             ret = self.__build_layer__(node)
@@ -1374,14 +1384,12 @@ class gen_net(object):
           prn('Мутация: Попытка изменения типа слоя',node,'на',ret)
         #if(ret == None ): continue # Мутация типа не удалась !!!!
         if len(relink_nodes):
-          #prn('$$$$$$$$$$$$$$$$$$$$$$$$$$',relink_nodes)
           lst = self.get_genom(False,False)
           nodes_in,nodes_out,nodes_v,edjes = self.__genom_to_graph__(lst)
           #удалим нач и конец из массивов вх/выхода
           nodes = ({edje[0] for edje in edjes} | {edje[1] for edje in edjes})
           nodes_in.discard(min(nodes))
           nodes_out.discard(max(nodes))
-
           #prn('2>',nodes_in,nodes_out,nodes_v,edjes)
           # Выберем и удалим связь
           dismiss_link = []
@@ -1428,7 +1436,8 @@ class gen_net(object):
           assert False
         prn('Мутация не удачна. Еще попытка.')
 
-    prn('Мутация завершена успешно.')
+    assert(sumMutation)
+    prn('Мутация завершена успешно. Мутировано генов '+str(sumMutation))
     self.sequence()
     return lst_to_report
     
@@ -2329,7 +2338,7 @@ class kerasin:
       nMutant = 0
     for i in range(nMutant):
       if soft_fit: 
-        nBot = i % soft_fit
+        nBot = i % min(soft_fit,len(self.popul))
       else:
         nBot = getBotInExpovariate(.2)
       bot = self.popul[nBot].copy()
@@ -2337,7 +2346,7 @@ class kerasin:
         bot.name = self.__botname__(epoch,len(new_popul)+1, bot.get_family())
         bot.description = "Мутант от "+self.popul[nBot].name+';'+ bot.description
         power = self.ga_control['mutation_prob']
-        if power==0: power = (1.05-progress)*.5
+        if power==0: power = .025+(1-progress)*.5
         bot.mutate(power,soft_fit==0,soft_fit==0)
         new_popul.append(bot)
         self.print('Бот '+bot.name+' мутировал из бота '+str(nBot)+' на '+str(round(power*100,1))+'%'+(' в режиме soft fit.' if soft_fit else ''))
@@ -2423,7 +2432,7 @@ class kerasin:
   # parameter_limit=0 - Вывод первыx limit параметров функции
   # valname='x' - Имя переменной для подстановки в код
   def print_code(self,idx, parameter_limit=0,valname='x'):
-    if idx>=len(popul): return 'неправильный индекс idx в параметре. Такой бот не загружен в популяцию.'
+    if idx>=len(self.popul): return 'неправильный индекс idx в параметре. Такой бот не загружен в популяцию.'
     return self.popul[idx].print_code(parameter_limit,valname)
 
   # Оценка качества текущей популяции на устойчивость к объему данных, 
