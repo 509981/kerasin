@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 1.9 от 7/11/2021 г.
+#Версия 2.0 от 7/11/2021 г.
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -2035,7 +2035,7 @@ class kerasin:
       return
     if not printState: return
     self.print('//////////////////////////////////////////////////////////////')
-    self.print('//                       START FIT SESSION')
+    self.print('//         START FIT SESSION : '+('OPTMIZATION' if self.ga_control['soft_fit'] else 'NET SELECTION'))
     self.print('// -----------------------------------------------------------')
     self.print('//   GA Parameters:')
     self.print('// Popul='+str(self.nPopul)+'; Is sequence='+str(self.is_sequence)+'; Max Goal='+str(self.maxi_goal))
@@ -2328,7 +2328,10 @@ class kerasin:
     else:
       nMutant = 0
     for i in range(nMutant):
-      nBot = getBotInExpovariate(.2)
+      if soft_fit: 
+        nBot = i % soft_fit
+      else:
+        nBot = getBotInExpovariate(.2)
       bot = self.popul[nBot].copy()
       if bot:
         bot.name = self.__botname__(epoch,len(new_popul)+1, bot.get_family())
