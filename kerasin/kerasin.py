@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 2.0 от 7/11/2021 г.
+#Версия 2.1 от 19/11/2021 г.
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -20,8 +20,8 @@ from copy import deepcopy
 import tensorflow.errors as tferrors
 import tensorflow.keras.callbacks as callbacks
 from tensorflow.keras.layers import Dense,Dropout,Input,concatenate,BatchNormalization,Conv2D,MaxPooling2D
-from tensorflow.keras.layers import LSTM,Embedding,Reshape,GaussianNoise,Activation
-from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,Flatten,LeakyReLU
+from tensorflow.keras.layers import LSTM,GRU,SimpleRNN,Embedding,Reshape,GaussianNoise,Activation,RepeatVector
+from tensorflow.keras.layers import Conv1D, SpatialDropout1D, MaxPooling1D, GlobalAveragePooling1D, GlobalMaxPooling1D,GlobalMaxPooling2D,Flatten,LeakyReLU
 from tensorflow.keras.models import Model,clone_model
 from tensorflow.keras import utils
 import keras.backend as K
@@ -216,15 +216,18 @@ class neuro_graph:
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
 
-types_list = ['Dense', 'Conv2D', 'Conv1D','MaxPooling1D','MaxPooling2D','LSTM','GaussianNoise','Flatten']
+types_list = ['Dense', 'Conv2D', 'Conv1D','MaxPooling1D','MaxPooling2D','LSTM','GRU',
+              'SimpleRNN','GaussianNoise','Flatten','RepeatVector','GlobalMaxPooling1D','GlobalMaxPooling2D']
 
-layers_type_prob = {'Dense':5,'Conv2D':5,'Conv1D':5,'MaxPooling1D':2,'MaxPooling2D':2,'LSTM':5,'GaussianNoise':1,'Flatten':0}
+layers_type_prob = {'Dense':5, 'Conv2D':5, 'Conv1D':5, 'MaxPooling1D':2, 'MaxPooling2D':2,
+                    'LSTM':5, 'GRU':3, 'SimpleRNN':2, 'Flatten':3, 'RepeatVector':2, 'GaussianNoise':1, 
+                    'GlobalMaxPooling1D': 1, 'GlobalMaxPooling2D': 1}
 
 #types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
 ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization','SpatialDropout1D']
 #extlayers_type_prob = {'Flatten':.,'concatenate','Dropout','BatchNormalization']
 
-extralayers_type_prob = {'Dropout':.3,'BatchNormalization':.3,'LeakyReLU':.15}
+extralayers_type_prob = {'Dropout':.3, 'BatchNormalization':.3, 'LeakyReLU':.15}
 
 # типы активации
 type_activations = ['linear','relu', 'elu','tanh','softmax','sigmoid', 'selu']
@@ -336,9 +339,12 @@ class gen(object):
       elif self.var_name == 'go_backwards': self.value = (random.random() < .3) #LSTM
       elif self.var_name == 'unit_forget_bias': self.value = (random.random() > .3) #LSTM
       elif self.var_name == 'unroll': self.value = (random.random() < .3) #LSTM
-      elif self.var_name == 'stateful': self.value = (random.random() < .3) #LSTM
       elif self.var_name == 'pool_size': self.value = random.randint(2,4) #MaxPooling
       elif self.var_name == 'alpha': self.value = random.random() #LeakyReLU
+      elif self.var_name == 'n': self.value = random.randint(2,8) #RepeatVector
+      elif self.var_name == 'keepdims': self.value = not old_value #GlobalMaxPooling
+      elif self.var_name == 'reset_after': self.value = (random.random() > .3) #GRU
+      elif self.var_name == 'recurrent_activation':  self.value = type_activations[random.randint(0,len(type_activations)-1)] #GRU  # lstm
       elif self.var_name == 'kernel_size': 
         winsize = random.randint(2,7)
         if '1D' in self.name: self.value = (winsize,)
@@ -374,8 +380,8 @@ class gen(object):
         # Эти параметры обычно нет смысла менять
         elif 'constraint' in self.var_name: pass
         elif self.var_name == 'dtype': pass
-        elif self.var_name == 'return_sequences': pass
         elif self.var_name == 'seed': pass
+        elif self.var_name == 'return_sequences': pass
         elif self.var_name == 'trainable': pass
         elif self.var_name == 'data_format': pass
         elif self.var_name == 'axis': self.value = -1
@@ -383,6 +389,8 @@ class gen(object):
         elif self.var_name == 'sparse': pass  # Input
         elif self.var_name == 'batch_input_shape': pass  # Input
         # Разобраться позже
+        elif self.var_name == 'stateful': pass #LSTM /GRU... Если Tru - нужно указать batch_shape
+        elif self.var_name == 'return_state':  pass #GRU  # lstm Eсли Тру - возвращает список слоев!
         elif self.var_name == 'inbound_layers': pass # return 3 # Изменение связи не 'Concatenate' == self.name
         elif self.var_name == 'momentum': pass  # BatchNorm
         elif self.var_name == 'epsilon': pass  # BatchNorm
@@ -390,8 +398,7 @@ class gen(object):
         elif self.var_name == 'noise_shape': pass  # Dropout
         elif self.var_name == 'implementation': pass  # lstm
         elif self.var_name == 'time_major': pass  # lstm
-        elif self.var_name == 'return_state': pass  # lstm
-        elif self.var_name == 'recurrent_activation': pass  # lstm
+
         else:
           prn('пропущено:',self.name,'-',self.get())
         return 0
@@ -621,14 +628,19 @@ class gen_layer(object):
         neurotype = np.random.choice(keys, 1, p=probs)[0]
         
         #neurotype = random.sample(types_list,1)[0]
-        if neurotype == 'Flatten' and shape_dim>1 and neurotype != layer_in_name: break; # and layer_in != 'Flatten':
+        if neurotype == 'Flatten' and shape_dim>1 and neurotype != layer_in_name and 'RepeatVector' != layer_in_name: break; # and layer_in != 'Flatten':
         elif neurotype == 'MaxPooling2D' and shape_dim==3: break
         elif neurotype == 'Conv2D' and shape_dim==3: break
         elif neurotype == 'MaxPooling1D' and shape_dim==2: break
         elif neurotype == 'Conv1D' and shape_dim>1: break
         elif neurotype == 'LSTM' and shape_dim==2 and is_sequence: break
+        elif neurotype == 'GRU' and shape_dim==2 and is_sequence: break
+        elif neurotype == 'SimpleRNN' and shape_dim==2 and is_sequence: break
+        elif neurotype == 'GlobalMaxPooling1D' and shape_dim==2: break
+        elif neurotype == 'GlobalMaxPooling2D' and shape_dim==3: break
         elif neurotype == 'GaussianNoise' and neurotype != layer_in_name: break
-        elif neurotype == 'Dense': break
+        elif neurotype == 'Dense' and shape_dim==1: break 
+        elif neurotype == 'RepeatVector' and shape_dim==1 and neurotype != layer_in_name and 'Flatten' != layer_in_name: break 
     return neurotype
 
 
@@ -653,8 +665,16 @@ class gen_layer(object):
       x = MaxPooling1D()
     elif neurotype == 'Conv1D':
       x = Conv1D(10,1)
+    elif neurotype == 'GlobalMaxPooling1D':
+      x = GlobalMaxPooling1D()
+    elif neurotype == 'GlobalMaxPooling2D':
+      x = GlobalMaxPooling2D()
     elif neurotype == 'LSTM':
       x = LSTM(10)
+    elif neurotype == 'SimpleRNN':
+      x = SimpleRNN(10)
+    elif neurotype == 'GRU':
+      x = GRU(10)
     elif neurotype == 'GaussianNoise':
       x = GaussianNoise(.5)
     elif neurotype == 'Dropout':
@@ -665,6 +685,8 @@ class gen_layer(object):
       x = LeakyReLU()
     elif neurotype == 'Activation':      
       x = Activation('relu')
+    elif neurotype == 'RepeatVector':      
+      x = RepeatVector(2)
     else:
       print('недопустимый слой:',neurotype)
       assert False
@@ -679,11 +701,7 @@ class gen_layer(object):
         x = Input(self.shape_out)
         self.addLayer(x._keras_history.layer)
         return x
-    #elif str.lower(neurotype) == 'Embedding':
-    #    assert(self.data>0 and len(self.shape_out)==1)
-    #    x = Embedding(self.data,2**random.randint(2,8),input_length=self.shape_out[0])(x)
-    #    self.addLayer(x._keras_history.layer)
-    #    return x
+
     elif str.lower(neurotype) == 'concatenate':
       # Несколько входов - значит коннектор
       assert len(conn_in)>1
@@ -710,8 +728,16 @@ class gen_layer(object):
           return None
       return x
     try:
-      #if True:
       x = conn_in[0]
+      if neurotype in ['LSTM','SimpleRNN','GRU'] and random.random()>.5:
+        # В этом сочетании слои будут учится быстрее на cuDNN
+        cfg['activation'] = 'tanh'
+        cfg['recurrent_activation'] = 'sigmoid'
+        cfg['recurrent_dropout'] = 0
+        cfg['unroll'] = False
+        cfg['use_bias'] = True
+        cfg['reset_after'] = True
+        prn('оптимизация для cuDNN')
       if neurotype == 'Dense':
         x = Dense.from_config(cfg)(x)
       elif neurotype == 'Embedding':
@@ -730,8 +756,16 @@ class gen_layer(object):
         x = MaxPooling1D.from_config(cfg)(x)
       elif neurotype == 'Conv1D':
         x = Conv1D.from_config(cfg)(x)
+      elif neurotype == 'GlobalMaxPooling2D':
+        x = GlobalMaxPooling2D.from_config(cfg)(x)
+      elif neurotype == 'GlobalMaxPooling1D':
+        x = GlobalMaxPooling1D.from_config(cfg)(x)
       elif neurotype == 'LSTM':
         x = LSTM.from_config(cfg)(x)
+      elif neurotype == 'SimpleRNN':
+        x = SimpleRNN.from_config(cfg)(x)        
+      elif neurotype == 'GRU':
+        x = GRU.from_config(cfg)(x)
       elif neurotype == 'GaussianNoise':
         x = GaussianNoise.from_config(cfg)(x)
       elif neurotype == 'Dropout':
@@ -744,6 +778,8 @@ class gen_layer(object):
         x = LeakyReLU.from_config(cfg)(x)
       elif neurotype == 'Activation':
         x = Activation.from_config(cfg)(x)
+      elif neurotype == 'RepeatVector':
+        x = RepeatVector.from_config(cfg)(x)        
       else:
         print(neurotype,' - неописаный слой')
         return None  
@@ -923,7 +959,7 @@ class gen_net(object):
 
   def get_family(self):
     return self.__family__
-
+  
   # Находим срезы по эпохе epochs-1 и возвращает экстремум
   # Если есть ряды с ранней остановкой или epochs==0 возвращаем общий экстремум
   # Если ни одного такого среза нет - -1
@@ -931,10 +967,21 @@ class gen_net(object):
   def get_score(self,metric = 'val_loss',epochs=0,lower_epochs_score = False):
 
     if not self.hist: return -1
+    if not metric: metric = 'val_loss'
     if not 'val_' in metric: metric = 'val_'+metric
+    BIG_SCORE = 99999999
+    # Определим  по метрике является ли целью  максимизация
+    maxigoal = metric in ['val_accuracy']
     #print('asdfasf',epochs,metric)
     Score = 0
     for key,trial in self.hist.items():
+      if key == 'auto_correlation':
+        assert (isinstance(trial,int))
+        if trial>0:#  Есть автокорреляция - отбраковываем
+          if maxigoal: return 0
+          else: return BIG_SCORE
+        continue 
+
       #maxigoal = 'val_accuracy' in trial
       #print(trial)
       if metric in trial:
@@ -944,9 +991,7 @@ class gen_net(object):
       #print(row)
       if epochs > len(row) and not '<' in key and not lower_epochs_score: continue
       e = len(row) if epochs==0 or (lower_epochs_score and epochs > len(row)) else epochs
-      # Определим  по метрике является ли целью  максимизация
-      maxigoal = metric in ['val_accuracy']
-      if not maxigoal and Score == 0: Score = 999999999
+      if not maxigoal and Score == 0: Score = BIG_SCORE
       if maxigoal:
         Score = max(Score,max(row[0:e]))
       else:
@@ -983,6 +1028,9 @@ class gen_net(object):
     hist = self.hist
     if hist != None:
       for key,trial in hist.items():
+        if key == 'auto_correlation':
+          file.write( gen(9998,0,key,'',str(trial)).save_csv() )
+          continue
         for i in range(len(trial['loss'])):        
           for measure in trial:
             file.write( gen(9998,i,key,measure,trial[measure][i]).save_csv())
@@ -1030,6 +1078,9 @@ class gen_net(object):
             train[g.var_name].append(float(g.value))
           
         elif g.layer_idx == 9998: #history part
+          if g.name == 'auto_correlation':
+            hist['auto_correlation'] = int(g.value)
+            continue
           if g.name != curname:
             if curname != '*': 
               hist[curname] = dict(train)
@@ -1919,20 +1970,24 @@ class kerasin:
     self.max_layers = 5*complexity  # Примерное количество генерируемых слоев
     self.train_generator = None #Ссылка на генератор для fit_generator
     self.profile = None # Имя профиля для записи ботов
+    self.__best_score__ = -1  # Лучшая оценка для мониторинга чемпиона
     self.logfile = None
-    
     # Управление Генетическим алгоритмом
     # 1. Распределение популяции 'popul_distribution' кортеж: (число оставляемых чемпионов, число ботов полученых кросовером,
     #                                число ботов полученых мутацией, число случайных ботов). По умолчанию (5,25,25,45)
     #    Разброс чисел не важен, они будут нормированы и приведены к 100%
     # 2. 'mutation_prob' - доля мутации мутанта от исходного генотипа. Например: ga_control['mutation_prob']=.2 (20%)
     #    Если 0 то доля от 0.5 в первой эпохе автоматически уменьшается при приближении к последней эпохе
-    # 3. soft_fit если True мутации меняют только параметры слоев но не сами слои и их связи
+    # 3. early_stopping_at_minloss = .005 если метрика эпохи в отношении предыдущей снизится до этого значения, - обучение будет остановлено
+    #    Введено для экономии времени. 0-отключено. По умолчанию 0.5%
+    # 4. soft_fit если True мутации меняют только параметры слоев но не сами слои и их связи
+    # 5. autocorrelation_wide количество шагов вперед для оценки автокорреляции(для временных рядов). 0 - отключена
     self.ga_control = {
         'popul_distribution': (5,25,25,45),
         'mutation_prob': .0,
         'early_stopping_at_minloss': .005,
-        'soft_fit': 0}
+        'soft_fit': 0,
+        'autocorrelation_wide': 0}
   # Генератор имени бота
   def __botname__(self,epoch,num,family):
     return "bot_"+str(epoch).zfill(2)+'.'+str(num).zfill(3)+'('+str(family).zfill(3)+')'
@@ -2054,7 +2109,7 @@ class kerasin:
     self.print('//   -EXTRALAYERS PROB='+str(extralayers_type_prob))
     self.print('// -----------------------------------------------------------')
     self.print('//   Fit Parameters:')
-    self.print('// fit epochs='+str(self.fit_epochs)+'; loss='+str(self.loss)+'; optim='+str(self.optimizer)+'; metrics='+self.metrics+'; batch='+str(self.batch_size))
+    self.print('// fit epochs='+str(self.fit_epochs)+'; loss='+str(self.loss)+'; optim='+str(self.optimizer)+'; metrics='+str(self.metrics)+'; batch='+str(self.batch_size))
     self.print('//////////////////////////////////////////////////////////////')
 
   # Запуск Эволюции на nEpochs генетических эпох
@@ -2115,6 +2170,8 @@ class kerasin:
             train_gen = None,
             batch_size=None,
             epochs=1,
+            x_val=None,
+            y_val=None,
             verbose="auto",
             validation_gen = None,
             rescore = False
@@ -2128,6 +2185,9 @@ class kerasin:
     self.fit_epochs=epochs
     self.batch_size=batch_size
     self.verbose=verbose
+    self.x_val=x_val
+    self.y_val=y_val
+
     if self.output_layer == None:
       print('Error: Нет данных о финальном слое. Используйте add_output()')
       return False
@@ -2141,7 +2201,7 @@ class kerasin:
     else:
       self.call_logfile(True)
     for epoch in range(start_epoch+1,ga_epochs+1): 
-      self.print('#================'+str(epoch)+'EPOCH OF GA ================')
+      self.print('================ '+str(epoch)+' EPOCH OF GA ================')
       if not self.__epoch__(epoch,epoch/ga_epochs,rescore): 
         noError = False
         break
@@ -2463,6 +2523,28 @@ class kerasin:
   # Процедура оценки
   # Возвращает количество реально просчитанных эпох
   def score(self,bot):
+    # Функция расёта корреляции дух одномерных векторов
+    def correlate(a, b):
+      # Рассчитываем основные показатели
+      ma = a.mean() # Среднее значение первого вектора
+      mb = b.mean() # Среднее значение второго вектора
+      mab = (a*b).mean() # Среднее значение произведения векторов
+      sa = a.std() # Среднеквадратичное отклонение первого вектора
+      sb = b.std() # Среднеквадратичное отклонение второго вектора
+      
+      #Рассчитываем корреляцию
+      val = 0
+      if ((sa>0) & (sb>0)):
+        val = (mab-ma*mb)/(sa*sb)
+      return val
+
+    def get_autoCorrelationShift( yVal, predVal, corrSteps=3):
+      corr = [] # Создаём пустой лист, в нём будут корреляции при смезении на i рагов обратно
+      yLen = yVal.shape[0] # Запоминаем размер проверочной выборки
+      for i in range(corrSteps):
+        corr.append(correlate(yVal[:yLen-i], predVal[i:]))
+      return np.argmax(corr)
+
     model = bot.model 
     model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
     early_stopping_at_minloss = 0 if self.ga_control['soft_fit'] else self.ga_control['early_stopping_at_minloss']
@@ -2471,10 +2553,11 @@ class kerasin:
         try:
           train_steps = self.train_generator.samples // self.batch_size
           val_steps = self.validation_generator.samples // self.batch_size
+          assert( True )# Кажется сюда не заходит
         except:
           train_steps = None
           val_steps = None
-          history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
+        history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
                                       validation_steps = val_steps, epochs=self.fit_epochs, verbose=self.verbose,
                                       callbacks=[EarlyStoppingAtMinLoss(early_stopping_at_minloss),TqdmCallback()])
       else:
@@ -2490,6 +2573,15 @@ class kerasin:
     histname = str(time.time())
     if len(history.history['loss']) < self.fit_epochs: histname += '<'
     bot.hist[histname] = history.history
+    # Проверка на автокорреляцию
+    autocorrelation_wide = self.ga_control['autocorrelation_wide']
+    if autocorrelation_wide:
+      #assert ( self.x_val self.y_val )
+      yPred = model.predict(self.x_val)
+      shift_autocorrelation = get_autoCorrelationShift( self.y_val, yPred, corrSteps=autocorrelation_wide)
+      if shift_autocorrelation:
+        print('Обнаружена автокорреляция на ',shift_autocorrelation,'шаге')
+        bot.hist['auto_correlation']=int(shift_autocorrelation)
 
     if self.x_test!=None and self.y_test!=None:
       bot.score = model.evaluate(self.x_test,self.y_test,verbose=0)
