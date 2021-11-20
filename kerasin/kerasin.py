@@ -219,15 +219,15 @@ GUnknown, GInput, GMain, GExt  = range(4)
 types_list = ['Dense', 'Conv2D', 'Conv1D','MaxPooling1D','MaxPooling2D','LSTM','GRU',
               'SimpleRNN','GaussianNoise','Flatten','RepeatVector','GlobalMaxPooling1D','GlobalMaxPooling2D']
 
-layers_type_prob = {'Dense':5, 'Conv2D':5, 'Conv1D':5, 'MaxPooling1D':2, 'MaxPooling2D':2,
-                    'LSTM':5, 'GRU':3, 'SimpleRNN':2, 'Flatten':3, 'RepeatVector':2, 'GaussianNoise':1, 
-                    'GlobalMaxPooling1D': 1, 'GlobalMaxPooling2D': 1}
+layers_type_prob = {'Dense':10, 'Conv2D':10, 'Conv1D':10, 'MaxPooling1D':4, 'MaxPooling2D':4,
+                    'LSTM':10, 'GRU':6, 'SimpleRNN':4, 'Flatten':6, 'RepeatVector':1, 'GaussianNoise':2, 
+                    'GlobalMaxPooling1D': 2, 'GlobalMaxPooling2D': 2}
 
 #types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
 ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization','SpatialDropout1D']
 #extlayers_type_prob = {'Flatten':.,'concatenate','Dropout','BatchNormalization']
 
-extralayers_type_prob = {'Dropout':.3, 'BatchNormalization':.3, 'LeakyReLU':.15}
+extralayers_type_prob = {'Dropout':.3, 'BatchNormalization':.3, 'LeakyReLU':.1}
 
 # типы активации
 type_activations = ['linear','relu', 'elu','tanh','softmax','sigmoid', 'selu']
