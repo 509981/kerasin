@@ -2536,7 +2536,7 @@ class kerasin:
     model = bot.model 
     model.compile(loss=self.loss,optimizer=self.optimizer,metrics=self.metrics)
     early_stopping_at_minloss = 0 if self.ga_control['soft_fit'] else self.ga_control['early_stopping_at_minloss']
-    try:
+    if True: #try:
       if self.train_generator:
         try:
           train_steps = self.train_generator.samples // self.batch_size
@@ -2565,6 +2565,7 @@ class kerasin:
     except:
       self.print(bot.name+' - Ошибка при обучении')
       return 0      
+
     if bot.hist == None: bot.hist = dict()
     histname = str(time.time())
     if len(history.history['loss']) < self.fit_epochs: histname += '<'
