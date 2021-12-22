@@ -1,6 +1,6 @@
 #Поиск оптимальной модели нейросети с применением генетического алгоритма
 #Применяется класс который способен генерировать случайным образом модели совместимые с фреймворком keras. Проводить операции кроссовера и мутации над ними.
-#Версия 2.1 от 19/11/2021 г.
+#Версия 2.11 от 23/12/2021 г.
 #Автор: Утенков Дмитрий Владимирович
 #e-mail: 509981@gmail.com 
 #Тел:   +7-908-440-9981
@@ -216,18 +216,17 @@ class neuro_graph:
 GUnknown, GInput, GMain, GExt  = range(4)
 #Список основных типов слоев содержит правильные названия их классов и частоту
 
+
 types_list = ['Dense', 'Conv2D', 'Conv1D','MaxPooling1D','MaxPooling2D','LSTM','GRU',
               'SimpleRNN','GaussianNoise','Flatten','RepeatVector','GlobalMaxPooling1D','GlobalMaxPooling2D']
 
-layers_type_prob = {'Dense':5, 'Conv2D':5, 'Conv1D':5, 'MaxPooling1D':2, 'MaxPooling2D':2,
-                    'LSTM':5, 'GRU':3, 'SimpleRNN':2, 'Flatten':3, 'RepeatVector':2, 'GaussianNoise':1, 
-                    'GlobalMaxPooling1D': 1, 'GlobalMaxPooling2D': 1}
+layers_type_prob = {'Dense':10, 'Conv2D':10, 'Conv1D':10, 'MaxPooling1D':4, 'MaxPooling2D':4,
+                    'LSTM':10, 'GRU':6, 'SimpleRNN':4, 'Flatten':6, 'RepeatVector':1, 'GaussianNoise':2, 
+                    'GlobalMaxPooling1D': 2, 'GlobalMaxPooling2D': 2}
 
-#types_list = ['Conv2D', 'Conv2D','MaxPooling2D','GaussianNoise','Dense']
 ext_types_list = ['Flatten','concatenate','Dropout','BatchNormalization','SpatialDropout1D']
-#extlayers_type_prob = {'Flatten':.,'concatenate','Dropout','BatchNormalization']
 
-extralayers_type_prob = {'Dropout':.3, 'BatchNormalization':.3, 'LeakyReLU':.15}
+extralayers_type_prob = {'Dropout':.3, 'BatchNormalization':.3, 'LeakyReLU':.1}
 
 # типы активации
 type_activations = ['linear','relu', 'elu','tanh','softmax','sigmoid', 'selu']
@@ -965,14 +964,12 @@ class gen_net(object):
   # Если ни одного такого среза нет - -1
   # lower_epochs_score - Если оценки до заданного числа эпох epochs - нет, то допустить оценку по меньшим доступным эпохам
   def get_score(self,metric = 'val_loss',epochs=0,lower_epochs_score = False):
-
     if not self.hist: return -1
     if not metric: metric = 'val_loss'
     if not 'val_' in metric: metric = 'val_'+metric
     BIG_SCORE = 99999999
     # Определим  по метрике является ли целью  максимизация
     maxigoal = metric in ['val_accuracy']
-    #print('asdfasf',epochs,metric)
     Score = 0
     for key,trial in self.hist.items():
       if key == 'auto_correlation':
@@ -982,13 +979,10 @@ class gen_net(object):
           else: return BIG_SCORE
         continue 
 
-      #maxigoal = 'val_accuracy' in trial
-      #print(trial)
       if metric in trial:
         row = trial[metric]
       else:
         continue #Запрошенная метрика не измерена на этой итерации
-      #print(row)
       if epochs > len(row) and not '<' in key and not lower_epochs_score: continue
       e = len(row) if epochs==0 or (lower_epochs_score and epochs > len(row)) else epochs
       if not maxigoal and Score == 0: Score = BIG_SCORE
@@ -1408,11 +1402,9 @@ class gen_net(object):
         lst_to_mutate = random.sample(lst,max(1,int(proc*len(lst))))
         sumMutation=0
         for g in lst_to_mutate:
-          #self.print(g)
           ret = g.mutate()
           sumMutation += ret
           prn('Мутация: Попытка изменения параметра слоя',g.get())
-          #layer = self.layers[gen.layer_idx]
           if ret == 2:# and random.random()<power*0.5: # Изменение типа слоя
             assert(change_type)
             rebuild_nodes.add(g.layer_idx)
@@ -1429,7 +1421,6 @@ class gen_net(object):
             if(ret != None ): break
           if(ret == None): 
             print('ошибка при смене типа слоя:',node,print_genom(lst))
-            #prn(self.print_genom(lst_to_report))
             raise
           self.layers[node].sequence(node)
           prn('Мутация: Попытка изменения типа слоя',node,'на',ret)
@@ -1475,11 +1466,7 @@ class gen_net(object):
         else: break
       except:
         # не получилось, откатим мутации и повторим цикл
-        #print('backup синтез')
-        #lst = deepcopy(backup) 
         self.load_genom(deepcopy(backup))
-        #print(self.print_genom(deepcopy(backup)))
-        #print('синтез bk')
         ret = self.synthesis()
         if ret==None:
           print(self.print_genom(deepcopy(backup)))
@@ -1512,7 +1499,6 @@ class gen_net(object):
     for gen in full_genom:
       if gen.layer_idx != layer_idx:
         while gen.layer_idx != layer_idx:
-          #while len(self.layers) != gen.layer_idx+1: 
           layer = gen_layer()
           self.layers.append(layer)
           if gen.layer_idx - layer_idx>1:
@@ -1529,12 +1515,10 @@ class gen_net(object):
       elif gen.var_name == "batch_input_shape" and gen.layer_idx==0:
           inp_shape = remove_batch_dim(gen.value)
           layer.shape_out = inp_shape
-          #print(gen.layer_idx,layer.shape_out)
           layer.genom.append( gen )
       elif gen.var_name == "input_dim" and gen.layer_idx==1:  # Embedding
           layer.shape_out = inp_shape
           layer.data = gen.value
-          #print(gen.layer_idx,layer.shape_out)
           layer.genom.append( gen )
 
       elif gen.var_name == "name":
@@ -1964,6 +1948,9 @@ class kerasin:
     self.y_val=None
     self.x_test=None
     self.y_test=None
+    self.shuffle=True
+    self.class_weight=None
+
     self.fit_epochs = 0 # Кол-во эпох обучения сетей
     self.ga_epochs = 0 # Кол-во генетических эпох
     self.maxi_goal = maxi_goal   # Это задача максимизации?
@@ -2125,7 +2112,9 @@ class kerasin:
             validation_split=0.0,
             x_val=None,
             y_val=None,
-            rescore = False
+            rescore = False,
+            shuffle=True,
+            class_weight=None
         ):  
     global min_loss_level
     self.x_train=x
@@ -2135,6 +2124,8 @@ class kerasin:
     self.fit_epochs=epochs
     self.batch_size=batch_size
     self.verbose=verbose
+    self.shuffle=shuffle
+    self.class_weight=class_weight
 
     if self.output_layer == None:
       print('Error: Нет данных о финальном слое. Используйте addOutput()')
@@ -2174,7 +2165,9 @@ class kerasin:
             y_val=None,
             verbose="auto",
             validation_gen = None,
-            rescore = False
+            rescore = False,
+            shuffle=True,
+            class_weight=None
         ):  
     global min_loss_level
     if train_gen == None:
@@ -2187,6 +2180,8 @@ class kerasin:
     self.verbose=verbose
     self.x_val=x_val
     self.y_val=y_val
+    self.shuffle=shuffle
+    self.class_weight=class_weight
 
     if self.output_layer == None:
       print('Error: Нет данных о финальном слое. Используйте add_output()')
@@ -2218,7 +2213,7 @@ class kerasin:
 
   # Задаем имя профиля когда хотим чтобы в каталог с этим именем 
   # выгружались боты после генерации
-  # nSurv - взять nSurv лучших, (0 - всех)
+  # nSurv - взять nSurv лучших, (0 - всех) 
   # include_unscored - включать всех у кого нет оценки
   # lower_epochs_score - Если оценки до заданного числа эпох self.fit_epochs - нет, то допустить оценку по меньшим доступным эпохам
   def show_profile(self,profile_name=None,nSurv=0,include_unscored=True,lower_epochs_score = False):
@@ -2233,6 +2228,7 @@ class kerasin:
     for root, dirs, files in os.walk(self.profile+'/'):
       for filename in files:
         if not '.gn' in filename: continue
+        tmp_bot.hist = None
         tmp_bot.load(filename.replace('.gn',''),self.profile+'/', True)
         score = tmp_bot.get_score(self.metrics,self.fit_epochs,lower_epochs_score)
         lst = [filename.replace('.gn',''),
@@ -2329,9 +2325,6 @@ class kerasin:
     # Это первый проход?
     # В первом проходе в популяции могут быть только боты посева
     first_pass = sum([1 for b in self.popul if b.get_family()!=-1])==0
-    #nSurv = self.pSurv*    
-    #if first_pass and self.profile != None and nLoad > first_pass:
-    #print(first_pass,'qerhaelkj')
     if first_pass and self.profile != None:
       #if self.profile != None and nLoad > first_pass:
       # Из фонда получаем nSurv лучших ботов плюс всех не прошедших оценку
@@ -2342,7 +2335,6 @@ class kerasin:
           self.print('Загружен бот '+bot_name+' с оценкой '+str(bot_score))
         else:
           self.print('Не смог загрузить бота '+bot_name)
-          #return True
       self.print('Загружено '+str(len(self.popul))+' ботов профиля '+self.profile)
 
     # На этом этапе боты посева имеют фамилию -1. Исправим это
@@ -2363,24 +2355,20 @@ class kerasin:
     for idx in range(min(nBest,len(self.popul))):
       new_popul.append(self.popul[idx])
       self.print('Бот '+self.popul[idx].name+' остается с предыдущей популяции.')
-    #self.print('Оставляем '+str(len(new_popul))+' лучших ботов предыдущей популяции')
 
     # Кроссовер 
     if len(self.popul)>1 and soft_fit==0:
-      #print(first_pass,soft_fit)
       for idx in range(get_qty_of_popul(1)):
         res=None
         while res==None:
           # Выбираем родителей по экспотенциальному распределению. #(параметр - чуть выше вероятности выбора 0-ого элемента, остальные по нисходящей)
           parents = []
           desc = ''
-          #family_idx = 10000000
           for i in range(2):#2-родителей   random.randint())
             parent = getBotInExpovariate(.2,parents)
             parents.append(parent)
             self.popul[parent].sequence()
             desc += self.popul[parent].name+','
-            #family_idx = min(parent,family_idx)
           family = self.popul[min(parents)].get_family()
           bot=gen_net( self.__botname__(epoch,len(new_popul)+1,family), family )
           bot.addOutput(self.shape_out,self.output_layer) 
@@ -2430,10 +2418,11 @@ class kerasin:
         real_epochs = self.score(bot)
         bot.train_duration = int(time.time()-start_time)
         if self.profile != None: bot.save(self.profile+'/')
+      if real_epochs == -1: break
       self.print(str(idx+1).zfill(2)+': '+bot.name+' Оценка = '+str(round(bot.get_score(self.metrics,self.fit_epochs),5))+' за '+str(bot.train_duration)+' cек. ('+str(real_epochs)+'/'+str(self.fit_epochs)+' эпох) '+bot.description)
       if idx % 5: self.call_logfile()
-      #self.logfile.flush() В колаб не работает
-      #bot.SetScore(scores,hist)
+      #self.logfile.flush() В колаб не работает 
+
       
     # Отбираем победителей
     self.popul.sort( key = lambda bot: sortscore(bot), reverse=self.maxi_goal)   # сортируем по оценке
@@ -2470,7 +2459,6 @@ class kerasin:
       plt.ylabel('Значение')
       plt.legend()
       plt.show()
-      #print(str(self.metrics),best.hist)
       plt.title('Metric Plot')
       cl=0
       for key,trial in best.hist.items():
@@ -2559,13 +2547,21 @@ class kerasin:
           val_steps = None
         history = model.fit_generator( self.train_generator, steps_per_epoch = train_steps, validation_data = self.validation_generator, 
                                       validation_steps = val_steps, epochs=self.fit_epochs, verbose=self.verbose,
-                                      callbacks=[EarlyStoppingAtMinLoss(early_stopping_at_minloss),TqdmCallback()])
+                                      callbacks=[EarlyStoppingAtMinLoss(early_stopping_at_minloss),TqdmCallback()],
+                                      shuffle=self.shuffle, class_weight=self.class_weight )
+
       else:
         history = model.fit( self.x_train, self.y_train , batch_size=self.batch_size, epochs=self.fit_epochs, validation_data=(self.x_val,self.y_val),
-                            verbose=self.verbose,callbacks=[EarlyStoppingAtMinLoss( early_stopping_at_minloss),TqdmCallback()])      
+                            verbose=self.verbose,callbacks=[EarlyStoppingAtMinLoss( early_stopping_at_minloss),TqdmCallback()],
+                            shuffle=self.shuffle, class_weight=self.class_weight )      
     except tferrors.ResourceExhaustedError as e:
       self.print(bot.name+': Модель требует слишком много памяти: '+str(e))
       return 0
+
+    except tferrors.ABORTED as e:
+      self.print(bot.name+': Прервано...')
+      return -1
+
     except:
       self.print(bot.name+' - Ошибка при обучении')
       return 0      
@@ -2573,10 +2569,9 @@ class kerasin:
     histname = str(time.time())
     if len(history.history['loss']) < self.fit_epochs: histname += '<'
     bot.hist[histname] = history.history
-    # Проверка на автокорреляцию
+    # Проверка на автокорреляцию 
     autocorrelation_wide = self.ga_control['autocorrelation_wide']
     if autocorrelation_wide:
-      #assert ( self.x_val self.y_val )
       yPred = model.predict(self.x_val)
       shift_autocorrelation = get_autoCorrelationShift( self.y_val, yPred, corrSteps=autocorrelation_wide)
       if shift_autocorrelation:
