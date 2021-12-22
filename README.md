@@ -66,7 +66,7 @@ G.compile(loss="categorical_crossentropy",optimizer="adam",metrics=["accuracy"])
 G.ga_control['mutation_prob'] = .3
 
 # Запуск эволюции
-G.fit( ga_epochs = 10, x = x_train, y = y_train, batch_size=125, epochs=20, verbose=0, x_val=x_test, y_val = y_test)
+G.fit( ga_epochs = 10, x = X_train, y = Y_train, batch_size=125, epochs=20, verbose=0, x_val=X_test, x_val = Y_test)
 
 # Выводим результат
 G.report(False,True)
